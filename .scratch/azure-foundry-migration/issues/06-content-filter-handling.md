@@ -1,7 +1,7 @@
 # Decide how content-filter rejections behave
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by: 02
 
 ## Question
@@ -25,3 +25,7 @@ Decide:
   single-word answers give the filter very little context and non-English words are riskier.
 - Whether `withFallback` should catch this and hand off to the heuristic, or whether that would
   wrongly launder blocked content into a scored round.
+
+## Answer
+
+Approved as specified. A `content_filter` 400 is caught distinctly from transient failure and never retried. The affected category scores 0 with player-facing feedback; the other three categories score normally. Thresholds raised to 'high only' if false positives appear. See spec section 8.

@@ -1,7 +1,7 @@
 # Write the migration spec
 
 Type: task
-Status: open
+Status: resolved
 Blocked by: 03, 04, 05, 06, 07, 08, 09
 
 ## Question
@@ -22,3 +22,7 @@ Write to `.scratch/azure-foundry-migration/spec.md`, covering:
 - What implementation work follows, sized — this spec hands off to a separate effort.
 
 Reference the decision tickets rather than restating their reasoning.
+
+## Answer
+
+Resolved. The spec is written at `.scratch/azure-foundry-migration/spec.md` and was approved by the user on 2026-08-08. Implementation tickets follow in `.scratch/azure-foundry-build/`.

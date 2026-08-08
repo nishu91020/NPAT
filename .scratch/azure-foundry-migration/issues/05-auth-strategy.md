@@ -1,7 +1,7 @@
 # Decide the authentication strategy
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by: 01
 
 ## Question
@@ -24,3 +24,7 @@ Decide:
   production.
 
 Note the hosting target is out of scope for this map, so decide in a way that does not depend on it.
+
+## Answer
+
+Approved as specified. API key now (mirrors the existing `GEMINI_API_KEY` shape and does not pre-commit the hosting decision); Entra ID revisited when hosting is settled, which is out of scope for this map. See spec section 4.

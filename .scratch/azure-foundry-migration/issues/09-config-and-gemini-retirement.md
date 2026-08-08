@@ -1,7 +1,7 @@
 # Decide the configuration shape and how Gemini is retired
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by: 05
 
 ## Question
@@ -25,3 +25,7 @@ Decide:
 - What `judgedBy` becomes. It is currently `'gemini' | 'heuristic'`, it is persisted inside saved
   game results in `localStorage`, and the UI keys the "Gemini AI Referee" badge off it. Old stored
   rounds will carry `'gemini'` forever — decide whether that matters and what the badge should say.
+
+## Answer
+
+Approved as specified. Four environment variables; all-absent means heuristic-only as today, but partial config is a fatal startup error. Gemini fully removed. `judgedBy` gains `'azure'` and retains `'gemini'` as a legacy value for already-stored rounds. See spec section 7 and 9.

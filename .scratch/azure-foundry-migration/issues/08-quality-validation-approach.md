@@ -1,7 +1,7 @@
 # Decide how we prove the new judge is good enough
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by: 03
 
 ## Question
@@ -24,3 +24,7 @@ Decide:
   run, since every real call costs money and there is no emulator) or a one-off gate.
 - Whether the bonus generator needs any validation, or whether "produces a renderable challenge" is
   sufficient.
+
+## Answer
+
+Approved as specified. Golden set of ~100 answer-sets diffed between Gemini and Azure before cutover, targeting >=95% agreement on clear-cut cases. See spec section 10.
