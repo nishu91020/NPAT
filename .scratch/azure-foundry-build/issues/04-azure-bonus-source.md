@@ -9,17 +9,36 @@ the existing seam.
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
 Spec: [../../azure-foundry-migration/spec.md](../../azure-foundry-migration/spec.md) §6
 
-- [ ] `createAzureBonusSource(client, deployment)` satisfies `BonusChallengeSource` unchanged
-- [ ] Strict JSON Schema with `additionalProperties: false` and the icon enum sourced from
+- [x] `createAzureBonusSource(client, deployment)` satisfies `BonusChallengeSource` unchanged
+- [x] Strict JSON Schema with `additionalProperties: false` and the icon enum sourced from
       `RENDERABLE_ICONS`, so the model is only offered icons the UI can render
-- [ ] The runtime icon clamp stays regardless of the schema enum
-- [ ] Length limits stay as prompt instructions — strict mode cannot express `maxLength` — and the
+- [x] The runtime icon clamp stays regardless of the schema enum
+- [x] Length limits stay as prompt instructions — strict mode cannot express `maxLength` — and the
       existing defensive parsing stays
-- [ ] Incomplete responses throw so `withBonusFallback` reaches the deterministic challenge
-- [ ] `cachedPerDate` still generates once per date; the existing cache tests keep passing
-- [ ] Tests mirror `geminiSource.test.ts` against a fake client
-- [ ] Verified live: the same date returns the same challenge across repeated requests
+- [x] Incomplete responses throw so `withBonusFallback` reaches the deterministic challenge
+- [x] `cachedPerDate` still generates once per date; the existing cache tests keep passing
+- [x] Tests mirror `geminiSource.test.ts` against a fake client
+- [x] Verified live: the same date returns the same challenge across repeated requests
+
+## Notes
+
+Done. 16 new tests (122 total).
+
+`RENDERABLE_ICONS` is shared with the Gemini source rather than duplicated, so the icon list still
+has exactly one definition and stays in lockstep with `ICON_MAP` in `LetterBanner.tsx`. The
+schema constrains the icon by enum *and* the runtime clamp is kept, because the schema only binds
+the model, not a malformed response.
+
+Length limits stay as prompt instructions, since strict mode does not support `maxLength` — there
+is a test asserting the schema emits none, so nobody later "fixes" it by adding one.
+
+**Caught a bug while wiring:** `isRealtimeBonus` on the daily and practice responses still tested
+`Boolean(ai)`, so an Azure-generated bonus would have reported `false`. It now tests the selected
+source.
+
+Verified live with a deliberately unreachable endpoint: the daily challenge fell back to the
+deterministic one and stayed identical across repeated calls.

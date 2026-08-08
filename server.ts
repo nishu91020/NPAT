@@ -13,6 +13,7 @@ import {
 } from './server/referee';
 import {
   cachedPerDate,
+  createAzureBonusSource,
   createGeminiBonusSource,
   deterministicSourceForDate,
   randomBuiltinSource,
@@ -85,16 +86,25 @@ function selectJudge(): Judge {
 
 const judge: Judge = selectJudge();
 
+/** Azure generates bonuses when configured, else Gemini, else the built-ins. */
+function primaryBonusSource(): BonusChallengeSource | null {
+  if (azure) return createAzureBonusSource(azure.client, azure.bonusDeployment);
+  if (ai) return createGeminiBonusSource(ai);
+  return null;
+}
+
+const aiBonusSource = primaryBonusSource();
+
 // One generation per date, shared by every player, with the deterministic
 // challenge as the fallback.
 const dailyBonus = cachedPerDate((dateStr) =>
-  ai
-    ? withBonusFallback(createGeminiBonusSource(ai), deterministicSourceForDate(dateStr))
+  aiBonusSource
+    ? withBonusFallback(aiBonusSource, deterministicSourceForDate(dateStr))
     : deterministicSourceForDate(dateStr)
 );
 
-const practiceBonus: BonusChallengeSource = ai
-  ? withBonusFallback(createGeminiBonusSource(ai), randomBuiltinSource)
+const practiceBonus: BonusChallengeSource = aiBonusSource
+  ? withBonusFallback(aiBonusSource, randomBuiltinSource)
   : randomBuiltinSource;
 
 app.get('/api/health', (req, res) => {
@@ -106,7 +116,7 @@ app.get('/api/daily-challenge', async (req, res) => {
   const basePuzzle = getDailyPuzzleData(dateStr);
   const bonusChallenge = await dailyBonus.forDate(dateStr, basePuzzle.letter);
 
-  res.json({ ...basePuzzle, bonusChallenge, isRealtimeBonus: Boolean(ai) });
+  res.json({ ...basePuzzle, bonusChallenge, isRealtimeBonus: Boolean(aiBonusSource) });
 });
 
 app.get('/api/practice-challenge', async (req, res) => {
@@ -114,7 +124,7 @@ app.get('/api/practice-challenge', async (req, res) => {
   const basePuzzle = getRandomPuzzleData(excludeLetter);
   const bonusChallenge = await practiceBonus.next(basePuzzle.letter);
 
-  res.json({ ...basePuzzle, bonusChallenge, isRealtimeBonus: Boolean(ai) });
+  res.json({ ...basePuzzle, bonusChallenge, isRealtimeBonus: Boolean(aiBonusSource) });
 });
 
 app.post('/api/generate-bonus', async (req, res) => {
