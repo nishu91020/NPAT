@@ -1,5 +1,5 @@
 import type OpenAI from 'openai';
-import { CategoryKey } from '../../src/types';
+import { CategoryKey, UserAnswers } from '../../src/types';
 import { CATEGORY_KEYS, SCORING } from './scoring';
 import { CategoryJudgement, Judge, JudgeRequest, JudgeVerdict } from './types';
 import {
@@ -61,15 +61,18 @@ export function buildVerdictSchema() {
  */
 export const JUDGE_SYSTEM_PROMPT = `You are the ultimate fun, fair, and precise AI referee for the classic word puzzle game "Name, Place, Animal, Thing".
 
+RULE 1 OVERRIDES ALL OTHERS. Check it first, for every answer, before you consider anything else.
+An answer that fails rule 1 scores nothing, no matter how good it otherwise is.
+
 For each of the four categories you receive, decide:
-1. Target Letter: does the word strictly start with the target letter (case-insensitive)? If not, or if empty, valid = false and bonusMatched = false.
-2. Category Validity: is the word a real, recognized item fitting the category?
+1. Target Letter: does the answer's first letter equal the target letter, ignoring case? Compare the very first character only. If it does not match, or the answer is empty, then valid = false AND bonusMatched = false — even if the word is a perfect fit for the category and the bonus rule. A famous, on-theme answer starting with the wrong letter is still worth nothing.
+2. Category Validity: only if rule 1 passed — is the word a real, recognized item fitting the category?
    - "Name": genuine human first name or famous character.
    - "Place": real city, country, state, river, mountain, or landmark.
    - "Animal": real animal species, bird, fish, reptile, insect, etc.
    - "Thing": real physical object, item, tool, food, vehicle, element, etc.
-3. Bonus Match: does this entry fulfil the active bonus rule you are given?
-4. Feedback: witty and concise, maximum 10 words per category.
+3. Bonus Match: only if rules 1 and 2 both passed — does this entry fulfil the active bonus rule you are given? If rule 1 failed, bonusMatched must be false.
+4. Feedback: witty and concise, maximum 10 words per category. When an answer fails rule 1, say so plainly.
 
 Set bonusChallengeMet to true when at least ${SCORING.bonusChallengeThreshold} categories satisfy the bonus rule.
 
@@ -87,6 +90,54 @@ Answers to evaluate:
 - Place: "${answers.place || ''}"
 - Animal: "${answers.animal || ''}"
 - Thing: "${answers.thing || ''}"`;
+}
+
+/**
+ * Overrides the model on the one rule that needs no judgement.
+ *
+ * Whether a word starts with the target letter is mechanically decidable, so
+ * there is no reason to trust a model for it — and models do get it wrong: a
+ * strongly on-theme answer like "Tiger" under an India bonus was observed
+ * scoring full marks for the letter S. Category validity and bonus matching
+ * still need world knowledge, so those are left to the judge.
+ */
+export function enforceTargetLetter(
+  verdict: JudgeVerdict,
+  letter: string,
+  answers: UserAnswers
+): JudgeVerdict {
+  const target = letter.trim().charAt(0).toUpperCase();
+  const categories = { ...verdict.categories };
+  let corrected = false;
+
+  for (const key of CATEGORY_KEYS) {
+    const word = (answers[key] || '').trim();
+    const startsWithTarget = word.charAt(0).toUpperCase() === target;
+    if (word && startsWithTarget) continue;
+
+    const judged = categories[key];
+    if (!judged.valid && !judged.bonusMatched) continue;
+
+    corrected = true;
+    categories[key] = {
+      valid: false,
+      bonusMatched: false,
+      feedback: word
+        ? `Must start with the letter "${target}".`
+        : 'No answer provided.',
+    };
+  }
+
+  if (!corrected) return verdict;
+
+  // The judge's own tally is no longer trustworthy once entries were corrected.
+  const bonusMatches = CATEGORY_KEYS.filter((key) => categories[key].bonusMatched).length;
+
+  return {
+    ...verdict,
+    categories,
+    bonusChallengeMet: bonusMatches >= SCORING.bonusChallengeThreshold,
+  };
 }
 
 function parseVerdict(raw: string): JudgeVerdict {
@@ -166,7 +217,7 @@ export function createAzureJudge(client: OpenAI, deployment: string): Judge {
     const content = choice.message?.content;
     if (!content) throw new Error('Azure judge returned empty content');
 
-    return parseVerdict(content);
+    return enforceTargetLetter(parseVerdict(content), request.letter, request.answers);
   }
 
   /**
