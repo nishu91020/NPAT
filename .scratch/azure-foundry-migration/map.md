@@ -32,6 +32,13 @@ evaluation) is installed in this environment and is the right tool for the `task
 5. Azure account state unknown — Provision a Foundry resource and deploy the models assumes
    starting from no subscription. If one exists, that ticket shrinks.
 
+**A draft spec exists early.** [spec.md](spec.md) was written ahead of the decision tickets, because
+the user asked for "a spec first for me to review" and a map alone gave them nothing to react to. It
+pre-fills every open decision with a research-backed recommendation, each marked 🟡 PROVISIONAL and
+linked to its ticket. **Those tickets remain open** — a recommendation is not the user's decision,
+and the grilling tickets still need the live exchange. When each is confirmed or corrected, resolve
+the ticket and revise the spec section.
+
 ## Decisions so far
 
 - [Which SDK and how to guarantee structured JSON](issues/01-research-sdk-structured-output.md) —
