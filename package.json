@@ -16,6 +16,7 @@
     "test:watch": "vitest",
     "test:integration": "vitest run --mode integration",
     "azurite": "azurite-blob --silent --skipApiVersionCheck --location ./.azurite --blobPort 10000",
+    "deploy": "pwsh -NoProfile -File ./scripts/deploy.ps1",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
