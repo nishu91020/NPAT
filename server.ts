@@ -4,6 +4,7 @@ import path from 'path';
 import { GoogleGenAI } from '@google/genai';
 import { getDailyPuzzleData, getRandomPuzzleData } from './src/utils/puzzleData';
 import {
+  createAzureJudge,
   createGeminiJudge,
   evaluateRound,
   heuristicJudge,
@@ -71,8 +72,18 @@ if (azure) {
   console.log('Microsoft Foundry configured; judge deployment:', azure.judgeDeployment);
 }
 
-// Gemini judges when configured; the heuristic covers both "no key" and "call failed".
-const judge: Judge = ai ? withFallback(createGeminiJudge(ai), heuristicJudge) : heuristicJudge;
+/**
+ * Azure judges when configured, else Gemini, else the heuristic alone.
+ * The heuristic always backs whichever AI judge is primary, covering both
+ * "not configured" and "the call failed".
+ */
+function selectJudge(): Judge {
+  if (azure) return withFallback(createAzureJudge(azure.client, azure.judgeDeployment), heuristicJudge);
+  if (ai) return withFallback(createGeminiJudge(ai), heuristicJudge);
+  return heuristicJudge;
+}
+
+const judge: Judge = selectJudge();
 
 // One generation per date, shared by every player, with the deterministic
 // challenge as the fallback.

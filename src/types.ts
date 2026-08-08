@@ -1,7 +1,7 @@
 export type CategoryKey = 'name' | 'place' | 'animal' | 'thing';
 
 /** Which referee ruled on a round. Absent on rounds stored before this existed. */
-export type JudgedBy = 'gemini' | 'heuristic';
+export type JudgedBy = 'azure' | 'gemini' | 'heuristic';
 
 export interface BonusChallenge {
   id: string;
