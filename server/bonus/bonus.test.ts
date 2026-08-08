@@ -57,7 +57,7 @@ describe('cachedPerDate', () => {
 
   it('evicts old dates rather than growing without bound', async () => {
     const source = countingSource();
-    const daily = cachedPerDate(() => source, 2);
+    const daily = cachedPerDate(() => source, { maxDays: 2 });
 
     await daily.forDate('2026-08-01', 'A');
     await daily.forDate('2026-08-02', 'B');

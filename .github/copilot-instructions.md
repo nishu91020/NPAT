@@ -10,11 +10,17 @@ heuristic judge as the fallback.
 npm install
 npm run dev      # tsx server.ts — Express + Vite middleware on http://localhost:3000
 npm run lint     # tsc --noEmit
-npm test         # vitest run
+npm test         # vitest run (unit only; no emulator needed)
+npm run azurite  # start the local blob emulator, needed by test:integration
+npm run test:integration   # includes *.integration.test.ts, requires Azurite
 npm run test:watch
 npm run build    # vite build -> dist/, then esbuild bundles server.ts -> dist/server.cjs
 npm start        # node dist/server.cjs (requires NODE_ENV=production to serve dist/)
 ```
+
+Integration tests are **excluded from `npm test`** so the default run needs no emulator. Azurite
+must be started with `--skipApiVersionCheck` (what `npm run azurite` does): the storage SDK speaks a
+newer API version than the emulator recognises and is rejected otherwise.
 
 Tests are Vitest, configured by `vitest.config.ts` — a **separate, deliberately plugin-free config**. Do
 not point Vitest at `vite.config.ts`: loading `@tailwindcss/vite` fails in Vitest's node environment.
@@ -114,9 +120,17 @@ string to pick a letter from `AVAILABLE_LETTERS` (Q/U/X/Y/Z are deliberately exc
 challenge, and derives `dayNumber` from a `2026-01-01` epoch. There is no database. Changing the hash,
 the letter list, or the epoch retroactively rewrites every past puzzle — treat those as frozen constants.
 
-**The daily bonus is generated once per date.** `cachedPerDate` in `server/bonus/types.ts` caches the
-in-flight promise per date so every player gets the same challenge and a refresh does not reroll it,
-falling back to the deterministic challenge. Practice mode is intentionally random per request.
+**The daily bonus is generated once per date, and shared across replicas.** Two layers, both
+required: `cachedPerDate` in `server/bonus/types.ts` caches the in-flight promise in process, and
+the `DailyChallengeStore` seam (`server/bonus/store.ts`) is the source of truth every replica reads.
+**The in-process map alone is only correct for a single replica** — without the store, each replica
+generates and serves its own daily challenge, which is a bug this project has already had once. A
+replica publishes with `putIfAbsent`, so the first writer wins and the rest adopt that value rather
+than overwriting it. Practice mode is intentionally random per request.
+
+Adapters: `createBlobStore` (production and Azurite), `createMemoryStore` (tests), `nullStore`
+(unconfigured, degrades to per-process caching). Set `DAILY_CHALLENGE_STORAGE` to enable it —
+a blob endpoint in Azure, or `UseDevelopmentStorage=true` against Azurite locally.
 
 **Scoring failure is not silently faked.** The client has no local validator. If `/api/validate` fails,
 `App.tsx` shows an error and does **not** record the round, so streak stats cannot be corrupted by a

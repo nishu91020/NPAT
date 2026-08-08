@@ -109,7 +109,7 @@ That is precisely the bug fixed earlier in this project. **Scaling out reintrodu
 | **D** | **Scheduled job precomputes tomorrow's challenge into Blob Storage** | pennies | Best. Also removes the AI call from the request path entirely. |
 | **E** | Make the daily challenge deterministic again (AI for practice only) | free | Zero infrastructure. Loses the AI-authored daily challenge. |
 
-**Recommended: D, with C's read-through as the app-side half.**
+**DECIDED: C (blob store with read-through), implemented 2026-08-08.** Azurite is the local\nsubstitute, so the store is tested without touching the cloud. D (the scheduled precompute job)\nremains a worthwhile follow-up — it would additionally take the 3-5s model call off the request\npath — but C alone makes scaling correct, which was the blocking problem.
 
 A Container Apps **scheduled job** (cron) runs once a day, generates tomorrow's challenge and writes
 it to a blob. The web app reads that blob and caches it in memory. Consequences worth having:
@@ -132,7 +132,7 @@ The strong position here is already banked: **there are no secrets to leak.**
 
 | Control | Action |
 |---|---|
-| **Identity** | Enable a **system-assigned managed identity** on the container app. Assign it **Cognitive Services OpenAI User** on the Foundry resource — the minimum role that permits inference. Not a contributor role. |
+| **Identity** | Enable a **system-assigned managed identity** on the container app. Assign it **Cognitive Services OpenAI User** on the Foundry resource — the minimum role that permits inference. Not a contributor role. Assign it **Storage Blob Data Contributor** on the storage account for the daily challenge store. |
 | **Kill key auth entirely** | Set `disableLocalAuth` on the Foundry resource so API keys cannot be used even if one is later created. Entra becomes the only way in. |
 | **Ingress** | External ingress, HTTPS only. Container Apps terminates TLS and provides a certificate on the default domain. |
 | **No secrets in the image** | `.dockerignore` must exclude `.env`. Verified: `.env` has never been tracked in git. |
@@ -205,8 +205,10 @@ single largest fixed line item. Worth a deliberate decision rather than an accid
 
 ## 9. Order of work
 
-1. **Blocking refactors** — PORT, SIGTERM, Dockerfile, `.dockerignore`, engines *(small, no decisions)*
-2. **Decide the daily-challenge approach** — D (job + blob) or E (deterministic) *(needs your call)*
+1. ~~**Blocking refactors** — PORT, SIGTERM, Dockerfile, `.dockerignore`, engines~~ **DONE**
+2. ~~**Decide the daily-challenge approach**~~ **DONE** — blob store with read-through cache,
+   Azurite locally. Verified with two server processes sharing one store returning the identical
+   challenge.
 3. Provision: Container Apps environment, app, managed identity, role assignment, budget alert
 4. First deploy with `az containerapp up`; verify `/api/health` and one live round
 5. Add Application Insights and the two log fields above

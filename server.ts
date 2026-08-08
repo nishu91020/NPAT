@@ -12,10 +12,13 @@ import {
 import {
   cachedPerDate,
   createAzureBonusSource,
+  createBlobStore,
   deterministicSourceForDate,
+  nullStore,
   randomBuiltinSource,
   withBonusFallback,
   type BonusChallengeSource,
+  type DailyChallengeStore,
 } from './server/bonus';
 import {
   createAzureClient,
@@ -73,12 +76,31 @@ const aiBonusSource: BonusChallengeSource | null = azure
   ? createAzureBonusSource(azure.client, azure.bonusDeployment)
   : null;
 
+/**
+ * Shared store for the daily challenge, so every replica serves the same one.
+ * Unset means single-replica behaviour: the in-process cache alone.
+ *
+ * Accepts either a blob endpoint (production, authenticated with Entra ID) or
+ * a connection string (Azurite locally, via UseDevelopmentStorage=true).
+ */
+function createDailyChallengeStore(): DailyChallengeStore {
+  const target = process.env.DAILY_CHALLENGE_STORAGE?.trim();
+  if (!target) return nullStore;
+
+  console.log('Daily challenge store enabled.');
+  return createBlobStore(target);
+}
+
+const dailyChallengeStore = createDailyChallengeStore();
+
 // One generation per date, shared by every player, with the deterministic
 // challenge as the fallback.
-const dailyBonus = cachedPerDate((dateStr) =>
-  aiBonusSource
-    ? withBonusFallback(aiBonusSource, deterministicSourceForDate(dateStr))
-    : deterministicSourceForDate(dateStr)
+const dailyBonus = cachedPerDate(
+  (dateStr) =>
+    aiBonusSource
+      ? withBonusFallback(aiBonusSource, deterministicSourceForDate(dateStr))
+      : deterministicSourceForDate(dateStr),
+  { store: dailyChallengeStore }
 );
 
 const practiceBonus: BonusChallengeSource = aiBonusSource
