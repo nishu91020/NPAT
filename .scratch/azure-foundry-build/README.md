@@ -37,18 +37,16 @@ disposable. Every ticket lands green — lint, tests, and build pass at every st
 | Ticket | State |
 |---|---|
 | 01 config and client | done |
-| 02 judge adapter | done, live verification pending a deployment |
+| 02 judge adapter | done, verified live |
 | 03 content filter | done |
 | 04 bonus source | done |
 | 05 judgedBy badge | done |
-| 06 golden-set diff | **blocked** — needs live Azure *and* live Gemini to diff against |
-| 07 retire Gemini | blocked by 06 |
+| 06 golden-set diff | **skipped** by the user |
+| 07 retire Gemini | done |
 
-Everything buildable without cloud credentials is built: 126 tests, lint and build green. The
-remaining two tickets are blocked on the provisioning step in
-[../azure-foundry-migration/issues/04-provision-foundry-resource.md](../azure-foundry-migration/issues/04-provision-foundry-resource.md),
-which the user is doing manually.
+**All tickets closed.** The migration is complete: Microsoft Foundry is the only LLM provider, with
+the heuristic judge as the fallback. 129 tests, lint and build green, verified live in both
+configured and unconfigured modes.
 
-Note the provisioning step now has a hard dependency on the RBAC role assignment: authentication is
-Entra ID with no API-key fallback, so without the *Cognitive Services OpenAI User* role every call
-401s.
+Ticket 06 was skipped rather than completed — there is no measured quality baseline. See that ticket
+for what stood in for it and what that costs.
