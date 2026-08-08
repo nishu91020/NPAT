@@ -21,11 +21,16 @@ Work to do:
   [Choose the models and how many deployments](03-choose-models-and-deployments.md), using Global
   Standard.
 - Assign the calling identity the *Cognitive Services OpenAI User* (or *Foundry User*) role.
+  **Required, not optional** — authentication is Microsoft Entra ID and there is no API-key
+  fallback. Assign it to your own signed-in identity for local development.
+- Run `az login`, then confirm the credential resolves:
+  `az account get-access-token --resource https://ai.azure.com --query expiresOn -o tsv`
 - Set a budget alert, so an unexpected spend is visible early.
 - Verify with a single live structured-output call.
 
 ## Answer
 
 Record here when done: the endpoint URL, the exact deployment name(s), the region, the quota tier
-granted, where the key or credential lives, and anything that differed from the plan. Later tickets
+granted, confirmation that the role assignment is in place, and anything that differed from the
+plan. There is no key to record — the credential comes from Entra ID. Later tickets
 depend on these facts.

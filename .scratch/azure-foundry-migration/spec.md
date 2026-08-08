@@ -70,7 +70,7 @@ import OpenAI from 'openai';
 
 const client = new OpenAI({
   baseURL: `https://${resourceName}.openai.azure.com/openai/v1/`,
-  apiKey: process.env.AZURE_OPENAI_API_KEY,
+  apiKey: tokenProvider,   // () => Promise<string>, called per request
   maxRetries: 3,
 });
 ```
@@ -85,19 +85,32 @@ thing to get wrong, and it makes the deployment name configuration rather than c
 
 ## 4. Authentication
 
-🟡 **PROVISIONAL** — [Decide the authentication strategy](issues/05-auth-strategy.md)
+**Decided: Microsoft Entra ID via `DefaultAzureCredential`.** No secret is stored anywhere — not in
+`.env`, not in the repo, not in CI.
 
-**Recommendation: API key now, Entra ID when hosting is settled.**
+```ts
+import { DefaultAzureCredential, getBearerTokenProvider } from '@azure/identity';
 
-Microsoft recommends Entra ID (`DefaultAzureCredential`), and it's clearly better — no stored
-secret, automatic from `az login` locally and from a managed identity in Azure. But its real payoff
-is managed identity at the hosting layer, and hosting is out of scope for this map. An API key
-mirrors today's `GEMINI_API_KEY` exactly, so it's the smaller change and doesn't pre-commit the
-hosting decision.
+const tokenProvider = getBearerTokenProvider(
+  new DefaultAzureCredential(),
+  'https://ai.azure.com/.default',
+);
+```
 
-If you'd rather go straight to Entra ID, the scope is `https://ai.azure.com/.default` — **not** the
-older `https://cognitiveservices.azure.com/.default`, which is a documented source of 401s — and the
-identity needs the *Cognitive Services OpenAI User* role.
+`DefaultAzureCredential` resolves from your `az login` session locally and from a managed identity
+once hosted, so local and deployed configuration are identical. The signed-in identity needs the
+*Cognitive Services OpenAI User* (or *Foundry User*) role on the resource — **a provisioning step,
+easy to miss.**
+
+⚠️ **Scope is `https://ai.azure.com/.default`**, not the older
+`https://cognitiveservices.azure.com/.default`, which is a documented cause of 401s against the v1
+route. A test pins this.
+
+⚠️ **Do not use the SDK's `AzureOpenAI` class.** Verified against the installed SDK: it requires an
+`apiVersion` and rewrites requests onto the legacy `/openai/deployments/{name}/` path — the opposite
+of the stable v1 route above. Use the base `OpenAI` client, which accepts `apiKey` as
+`() => Promise<string>` and calls it per request, giving exactly the refresh behaviour an expiring
+Entra token needs.
 
 ---
 
@@ -201,16 +214,17 @@ only render those seven.
 | Variable | Purpose |
 |---|---|
 | `AZURE_OPENAI_ENDPOINT` | `https://<resource>.openai.azure.com` |
-| `AZURE_OPENAI_API_KEY` | Key (omitted if Entra ID is chosen) |
 | `AZURE_OPENAI_JUDGE_DEPLOYMENT` | Deployment name for the judge |
 | `AZURE_OPENAI_BONUS_DEPLOYMENT` | Deployment name for the bonus generator |
 
+**No credential variable** — Entra ID supplies it at call time (§4).
+
 **Configuration is now multi-part, which changes the "unconfigured" story.** Today a missing
-`GEMINI_API_KEY` silently means heuristic-only, which is fine for one variable. With four, a
+`GEMINI_API_KEY` silently means heuristic-only, which is fine for one variable. With three, a
 *partial* config is possible and almost always a mistake.
 
-**Recommendation:** treat all-absent as "not configured" (heuristic-only, as today), but treat
-*partial* config as a **fatal startup error**. Silently degrading on a typo'd variable is how a
+**Decided:** all-absent means "not configured" (heuristic-only, as today), but *partial* config is a
+**fatal startup error** naming the missing variables. Silently degrading on a typo is how a
 production app quietly stops using the AI it's paying for.
 
 ---
@@ -298,13 +312,16 @@ is deleted.
 
 ## 12. Open decisions
 
-| # | Decision | My lean |
+| # | Decision | Status |
 |---|---|---|
-| [03](issues/03-choose-models-and-deployments.md) | Models; one deployment or two | `gpt-4.1-mini` + `gpt-4.1-nano`, two |
-| [05](issues/05-auth-strategy.md) | API key vs Entra ID | Key now, Entra ID with hosting |
-| [06](issues/06-content-filter-handling.md) | Content-filter UX | Fail one category, not the round |
-| [08](issues/08-quality-validation-approach.md) | Quality bar | ~100-case diff, ≥95% |
-| [09](issues/09-config-and-gemini-retirement.md) | Config + `judgedBy` legacy | Fatal on partial config; keep `'gemini'` |
+| [03](issues/03-choose-models-and-deployments.md) | Models; one deployment or two | ✅ `gpt-4.1-mini` + `gpt-4.1-nano`, two |
+| [05](issues/05-auth-strategy.md) | API key vs Entra ID | ✅ **Entra ID, `DefaultAzureCredential`** |
+| [06](issues/06-content-filter-handling.md) | Content-filter UX | ✅ Fail one category, not the round |
+| [08](issues/08-quality-validation-approach.md) | Quality bar | ✅ ~100-case diff, ≥95% |
+| [09](issues/09-config-and-gemini-retirement.md) | Config + `judgedBy` legacy | ✅ Fatal on partial config; keep `'gemini'` |
 
-Plus the charting assumptions on [map.md](map.md): spec-not-implementation, Function App out of
-scope, full Gemini removal, free-tier budget, no existing subscription.
+All decisions are settled; the spec is approved. Build tickets live in
+[../azure-foundry-build/](../azure-foundry-build/).
+
+Remaining charting assumptions on [map.md](map.md): Function App out of scope, full Gemini removal,
+free-tier budget.

@@ -14,9 +14,9 @@ invisible to players.
 
 Spec: [../../azure-foundry-migration/spec.md](../../azure-foundry-migration/spec.md) §3, §4, §7
 
-- [x] `npm install openai`; `@google/genai` stays for now (ticket 07 removes it)
-- [x] Four variables read: `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`,
-      `AZURE_OPENAI_JUDGE_DEPLOYMENT`, `AZURE_OPENAI_BONUS_DEPLOYMENT`
+- [x] `npm install openai @azure/identity`; `@google/genai` stays for now (ticket 07 removes it)
+- [x] Three variables read: `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_JUDGE_DEPLOYMENT`,
+      `AZURE_OPENAI_BONUS_DEPLOYMENT`. No credential variable — Entra ID supplies it at call time
 - [x] All four absent → no client, heuristic-only, identical to today's behaviour
 - [x] Some but not all present → process exits at startup naming the missing variables
 - [x] Client uses `baseURL` ending `/openai/v1/` and sets `maxRetries: 3`

@@ -3,7 +3,6 @@ import { AZURE_ENV_VARS, resolveAzureConfig } from './config';
 
 const complete = {
   AZURE_OPENAI_ENDPOINT: 'https://my-resource.openai.azure.com',
-  AZURE_OPENAI_API_KEY: 'secret-key',
   AZURE_OPENAI_JUDGE_DEPLOYMENT: 'npat-judge',
   AZURE_OPENAI_BONUS_DEPLOYMENT: 'npat-bonus',
 };
@@ -13,13 +12,20 @@ describe('resolveAzureConfig', () => {
     expect(resolveAzureConfig({})).toEqual({ kind: 'unconfigured' });
   });
 
+  it('requires no credential, since Entra ID supplies it at call time', () => {
+    const result = resolveAzureConfig(complete);
+
+    expect(result.kind).toBe('configured');
+    expect(JSON.stringify(result)).not.toMatch(/key|secret|password/i);
+  });
+
   it('treats blank and whitespace-only values as absent', () => {
-    const blank = { ...complete, AZURE_OPENAI_API_KEY: '   ' };
+    const blank = { ...complete, AZURE_OPENAI_JUDGE_DEPLOYMENT: '   ' };
     const result = resolveAzureConfig(blank);
 
     expect(result.kind).toBe('incomplete');
     if (result.kind === 'incomplete') {
-      expect(result.missing).toEqual(['AZURE_OPENAI_API_KEY']);
+      expect(result.missing).toEqual(['AZURE_OPENAI_JUDGE_DEPLOYMENT']);
     }
   });
 
@@ -35,7 +41,6 @@ describe('resolveAzureConfig', () => {
     expect(result).toEqual({
       kind: 'configured',
       endpoint: 'https://my-resource.openai.azure.com',
-      apiKey: 'secret-key',
       judgeDeployment: 'npat-judge',
       bonusDeployment: 'npat-bonus',
     });
@@ -87,7 +92,6 @@ describe('resolveAzureConfig', () => {
       expect(result.kind).toBe('incomplete');
       if (result.kind === 'incomplete') {
         expect(result.missing).toEqual([
-          'AZURE_OPENAI_API_KEY',
           'AZURE_OPENAI_JUDGE_DEPLOYMENT',
           'AZURE_OPENAI_BONUS_DEPLOYMENT',
         ]);

@@ -1,16 +1,21 @@
 export const AZURE_ENV_VARS = [
   'AZURE_OPENAI_ENDPOINT',
-  'AZURE_OPENAI_API_KEY',
   'AZURE_OPENAI_JUDGE_DEPLOYMENT',
   'AZURE_OPENAI_BONUS_DEPLOYMENT',
 ] as const;
 
 export type AzureEnvVar = (typeof AZURE_ENV_VARS)[number];
 
+/**
+ * Scope for the /openai/v1/ endpoint. Note this is NOT the older
+ * https://cognitiveservices.azure.com/.default scope, which is a documented
+ * cause of 401s against this route.
+ */
+export const AZURE_TOKEN_SCOPE = 'https://ai.azure.com/.default';
+
 export interface AzureConfig {
   kind: 'configured';
   endpoint: string;
-  apiKey: string;
   judgeDeployment: string;
   bonusDeployment: string;
 }
@@ -30,6 +35,10 @@ function read(env: Record<string, string | undefined>, key: AzureEnvVar): string
 /**
  * Resolves configuration from an env-shaped object rather than reading
  * process.env directly, so every permutation is testable.
+ *
+ * Credentials are deliberately absent: authentication is Microsoft Entra ID via
+ * DefaultAzureCredential, which resolves from `az login` locally and from a
+ * managed identity once hosted. There is no secret to configure.
  */
 export function resolveAzureConfig(env: Record<string, string | undefined>): AzureConfigResult {
   const present = AZURE_ENV_VARS.filter((key) => read(env, key) !== undefined);
@@ -43,7 +52,6 @@ export function resolveAzureConfig(env: Record<string, string | undefined>): Azu
     kind: 'configured',
     // Trailing slash removed so joining with /openai/v1/ never doubles up.
     endpoint: read(env, 'AZURE_OPENAI_ENDPOINT')!.replace(/\/+$/, ''),
-    apiKey: read(env, 'AZURE_OPENAI_API_KEY')!,
     judgeDeployment: read(env, 'AZURE_OPENAI_JUDGE_DEPLOYMENT')!,
     bonusDeployment: read(env, 'AZURE_OPENAI_BONUS_DEPLOYMENT')!,
   };
