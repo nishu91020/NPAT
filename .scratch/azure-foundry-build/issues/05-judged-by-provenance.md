@@ -9,13 +9,28 @@ forever. This ticket makes that explicit rather than leaving it to be discovered
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** done
 
 Spec: [../../azure-foundry-migration/spec.md](../../azure-foundry-migration/spec.md) §9
 
-- [ ] `JudgedBy` gains `'azure'` and keeps `'gemini'` as a legacy value
-- [ ] The Azure adapter reports `judgedBy: 'azure'`
-- [ ] The badge renders for both AI judges and stays hidden for `'heuristic'`
-- [ ] A round stored before this change still renders correctly, with no crash and no wrong badge
-- [ ] No `as any` reintroduced — the earlier refactor removed the last one
-- [ ] Badge wording checked against the game's existing voice
+- [x] `JudgedBy` gains `'azure'` and keeps `'gemini'` as a legacy value
+- [x] The Azure adapter reports `judgedBy: 'azure'`
+- [x] The badge renders for both AI judges and stays hidden for `'heuristic'`
+- [x] A round stored before this change still renders correctly, with no crash and no wrong badge
+- [x] No `as any` reintroduced — the earlier refactor removed the last one
+- [x] Badge wording checked against the game's existing voice
+
+## Notes
+
+Done. 4 new tests (126 total).
+
+The badge now reads **"AI Referee"** rather than naming the provider. Naming it would have meant
+either lying about rounds stored during the Gemini era or showing two different badges for what is,
+to the player, the same thing. The provider is an implementation detail; that a human-grade referee
+ruled is what the player cares about.
+
+`isAiJudged` lives in `src/utils/judge.ts` with the reasoning attached, because the interesting
+part is not the boolean but *why* three values have to be handled: `'azure'` now, `'gemini'` from
+stored rounds, and `undefined` from rounds saved before the field existed. All three are tested.
+
+`JudgedBy` gained `'azure'` back in ticket 02, where the adapter that emits it lives.

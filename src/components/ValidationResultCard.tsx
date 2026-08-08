@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { GameResult } from '../types';
 import { generateShareCard } from '../utils/puzzleData';
+import { isAiJudged } from '../utils/judge';
 import { Trophy, Share2, Copy, Check, Sparkles, RefreshCw, Flame, ArrowRight, User, MapPin, Dog, Package, Award } from 'lucide-react';
 import { playClickSound, playSuccessSound } from '../utils/audio';
 
@@ -60,10 +61,10 @@ export const ValidationResultCard: React.FC<ValidationResultCardProps> = ({
               <span className="text-[10px] font-bold px-2 py-0.5 bg-slate-100 border border-slate-200 text-slate-700 uppercase tracking-widest">
                 Letter '{result.letter}'
               </span>
-              {result.validation.judgedBy === 'gemini' && (
+              {isAiJudged(result.validation.judgedBy) && (
                 <span className="text-[10px] font-extrabold px-2 py-0.5 bg-indigo-50 border border-indigo-200 text-indigo-700 uppercase tracking-wider flex items-center gap-1">
                   <Sparkles className="w-3 h-3 text-indigo-600" />
-                  Gemini AI Referee
+                  AI Referee
                 </span>
               )}
             </div>
