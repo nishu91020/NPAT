@@ -29,9 +29,11 @@ dotenv.config({ path: '.env' });
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+// Container platforms inject the port; 3000 is the local default.
+const PORT = Number(process.env.PORT) || 3000;
 
-app.use(express.json());
+// Answers are four short words. A generous ceiling that still refuses junk.
+app.use(express.json({ limit: '64kb' }));
 
 /** Used only when a caller omits the field; the app always sends a real value. */
 const DEFAULT_TIME_TAKEN_SECONDS = 40;
@@ -150,9 +152,23 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
+
+  // Container platforms send SIGTERM on scale-in and on a new revision.
+  // Closing gracefully lets an in-flight round finish rather than dropping a
+  // player's submitted answers.
+  const shutdown = (signal: string) => {
+    console.log(`${signal} received, closing server.`);
+    server.close(() => process.exit(0));
+
+    // Do not hang forever on a stuck connection.
+    setTimeout(() => process.exit(0), 10_000).unref();
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 startServer();
