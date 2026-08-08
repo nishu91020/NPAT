@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { DailyPuzzle, UserAnswers, GameResult, GameStats } from './types';
-import { getDailyPuzzleData, getRandomPuzzleData, validateAnswersLocally } from './utils/puzzleData';
+import { DailyPuzzle, UserAnswers, GameResult, GameStats, ValidationResponse } from './types';
+import { getDailyPuzzleData, getRandomPuzzleData } from './utils/puzzleData';
 import { loadGameStats, recordGameCompletion, loadTodayDailyResult } from './utils/storage';
 import { playSuccessSound, playFailureSound, playClickSound } from './utils/audio';
 import { Header } from './components/Header';
@@ -10,7 +10,7 @@ import { ValidationResultCard } from './components/ValidationResultCard';
 import { StreakStatsModal } from './components/StreakStatsModal';
 import { HelpRulesModal } from './components/HelpRulesModal';
 import { SeoFaqSection } from './components/SeoFaqSection';
-import { Sparkles, Trophy, Flame, RefreshCw, Calendar, Share2, HelpCircle } from 'lucide-react';
+import { Sparkles, Trophy, Flame, RefreshCw, Calendar, Share2, HelpCircle, AlertCircle } from 'lucide-react';
 
 export default function App() {
   const [mode, setMode] = useState<'daily' | 'practice'>('daily');
@@ -18,6 +18,7 @@ export default function App() {
   const [gameResult, setGameResult] = useState<GameResult | null>(null);
   const [stats, setStats] = useState<GameStats>(loadGameStats());
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const [isStatsOpen, setIsStatsOpen] = useState<boolean>(false);
   const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
@@ -66,6 +67,7 @@ export default function App() {
 
   const handleSelectMode = (newMode: 'daily' | 'practice') => {
     setMode(newMode);
+    setSubmitError(null);
     if (newMode === 'daily') {
       fetchDailyPuzzle();
     } else {
@@ -76,13 +78,17 @@ export default function App() {
 
   const handleNewPracticeRound = () => {
     setGameResult(null);
+    setSubmitError(null);
     fetchPracticePuzzle(puzzle.letter);
   };
 
   const handleSubmitAnswers = async (answers: UserAnswers, timeTaken: number, remainingLives: number) => {
     setIsSubmitting(true);
-    let validationRes = null;
+    setSubmitError(null);
 
+    // Scoring is server-only. If it cannot be reached the round is not recorded,
+    // rather than being silently scored by a weaker local judge.
+    let validationRes: ValidationResponse;
     try {
       const response = await fetch('/api/validate', {
         method: 'POST',
@@ -95,14 +101,18 @@ export default function App() {
         }),
       });
 
-      if (response.ok) {
-        validationRes = await response.json();
-      } else {
-        validationRes = validateAnswersLocally(puzzle.letter, answers, puzzle.bonusChallenge, timeTaken);
+      if (!response.ok) {
+        throw new Error(`Validation failed with status ${response.status}`);
       }
+
+      validationRes = await response.json();
     } catch (e) {
-      console.error('Validation request failed, using local fallback:', e);
-      validationRes = validateAnswersLocally(puzzle.letter, answers, puzzle.bonusChallenge, timeTaken);
+      console.error('Validation request failed:', e);
+      setIsSubmitting(false);
+      setSubmitError(
+        'We could not score this round. Check your connection and submit again — nothing has been recorded.'
+      );
+      return;
     }
 
     setIsSubmitting(false);
@@ -182,12 +192,24 @@ export default function App() {
             mode={mode}
           />
         ) : (
-          <CategoryInputForm
-            puzzle={puzzle}
-            onSubmit={handleSubmitAnswers}
-            isSubmitting={isSubmitting}
-            soundEnabled={soundEnabled}
-          />
+          <>
+            {submitError && (
+              <div
+                id="submit-error-banner"
+                role="alert"
+                className="p-4 bg-rose-50 border-l-4 border-rose-500 text-rose-900 text-xs font-bold uppercase tracking-wider flex items-center gap-2"
+              >
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{submitError}</span>
+              </div>
+            )}
+            <CategoryInputForm
+              puzzle={puzzle}
+              onSubmit={handleSubmitAnswers}
+              isSubmitting={isSubmitting}
+              soundEnabled={soundEnabled}
+            />
+          </>
         )}
 
         {/* SEO & Game Guide Section */}
