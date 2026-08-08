@@ -40,7 +40,7 @@ describe('resolveAzureConfig', () => {
 
     expect(result).toEqual({
       kind: 'configured',
-      endpoint: 'https://my-resource.openai.azure.com',
+      endpoint: 'https://my-resource.openai.azure.com/openai/v1',
       judgeDeployment: 'npat-judge',
       bonusDeployment: 'npat-bonus',
     });
@@ -55,7 +55,7 @@ describe('resolveAzureConfig', () => {
 
     expect(result.kind).toBe('configured');
     if (result.kind === 'configured') {
-      expect(result.endpoint).toBe('https://my-resource.openai.azure.com');
+      expect(result.endpoint).toBe('https://my-resource.openai.azure.com/openai/v1');
     }
   });
 
@@ -67,8 +67,53 @@ describe('resolveAzureConfig', () => {
 
     expect(result.kind).toBe('configured');
     if (result.kind === 'configured') {
-      expect(result.endpoint).toBe('https://my-resource.openai.azure.com');
+      expect(result.endpoint).toBe('https://my-resource.openai.azure.com/openai/v1');
     }
+  });
+
+  describe('endpoint normalisation accepts whatever the portal shows', () => {
+    // The portal's own sample includes the /openai/v1 suffix, and newer
+    // resources use services.ai.azure.com rather than openai.azure.com.
+    const expected = 'https://example-resource.services.ai.azure.com/openai/v1';
+
+    it.each([
+      ['bare resource host', 'https://example-resource.services.ai.azure.com'],
+      ['with the portal suffix', 'https://example-resource.services.ai.azure.com/openai/v1'],
+      ['with a trailing slash', 'https://example-resource.services.ai.azure.com/openai/v1/'],
+      ['with just /openai', 'https://example-resource.services.ai.azure.com/openai'],
+    ])('normalises %s', (_label, endpoint) => {
+      const result = resolveAzureConfig({ ...complete, AZURE_OPENAI_ENDPOINT: endpoint });
+
+      expect(result.kind).toBe('configured');
+      if (result.kind === 'configured') {
+        expect(result.endpoint).toBe(expected);
+      }
+    });
+
+    it('never doubles the path, whichever form was pasted in', () => {
+      for (const endpoint of [
+        'https://x.services.ai.azure.com',
+        'https://x.services.ai.azure.com/openai/v1',
+      ]) {
+        const result = resolveAzureConfig({ ...complete, AZURE_OPENAI_ENDPOINT: endpoint });
+        if (result.kind === 'configured') {
+          expect(result.endpoint).not.toContain('/openai/v1/openai');
+          expect(result.endpoint.match(/\/openai\/v1/g)).toHaveLength(1);
+        }
+      }
+    });
+
+    it('supports the older openai.azure.com host too', () => {
+      const result = resolveAzureConfig({
+        ...complete,
+        AZURE_OPENAI_ENDPOINT: 'https://legacy.openai.azure.com',
+      });
+
+      expect(result.kind).toBe('configured');
+      if (result.kind === 'configured') {
+        expect(result.endpoint).toBe('https://legacy.openai.azure.com/openai/v1');
+      }
+    });
   });
 
   describe('partial configuration is an error, not a silent downgrade', () => {

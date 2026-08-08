@@ -4,7 +4,8 @@ import { AZURE_TOKEN_SCOPE, AzureConfig } from './config';
 
 const config: AzureConfig = {
   kind: 'configured',
-  endpoint: 'https://my-resource.openai.azure.com',
+  // Already normalised by resolveAzureConfig.
+  endpoint: 'https://my-resource.openai.azure.com/openai/v1',
   judgeDeployment: 'npat-judge',
   bonusDeployment: 'npat-bonus',
 };
@@ -12,10 +13,11 @@ const config: AzureConfig = {
 const tokenProvider = async () => 'fake-entra-token';
 
 describe('createAzureClient', () => {
-  it('targets the stable /openai/v1/ route', () => {
+  it('targets the stable /openai/v1 route exactly once', () => {
     const { client } = createAzureClient(config, { tokenProvider });
 
-    expect(client.baseURL).toBe('https://my-resource.openai.azure.com/openai/v1/');
+    expect(client.baseURL).toBe('https://my-resource.openai.azure.com/openai/v1');
+    expect(client.baseURL).not.toContain('/openai/v1/openai');
   });
 
   it('does not append an api-version query parameter', () => {

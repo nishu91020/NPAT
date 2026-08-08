@@ -47,7 +47,8 @@ export function createAzureClient(
 
   return {
     client: new OpenAI({
-      baseURL: `${config.endpoint}/openai/v1/`,
+      // Already normalised to end in /openai/v1 by resolveAzureConfig.
+      baseURL: config.endpoint,
       apiKey: tokenProvider,
       maxRetries: MAX_RETRIES,
       ...(overrides.fetch ? { fetch: overrides.fetch } : {}),

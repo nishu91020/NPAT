@@ -33,6 +33,24 @@ function read(env: Record<string, string | undefined>, key: AzureEnvVar): string
 }
 
 /**
+ * Produces the base URL the client should call, accepting either form of
+ * endpoint people copy out of the portal:
+ *
+ *   https://my-resource.services.ai.azure.com
+ *   https://my-resource.services.ai.azure.com/openai/v1
+ *   https://my-resource.openai.azure.com
+ *
+ * The portal's own sample includes the /openai/v1 suffix, so appending it
+ * blindly would produce /openai/v1/openai/v1.
+ */
+export function normaliseEndpoint(raw: string): string {
+  const trimmed = raw.trim().replace(/\/+$/, '');
+  const withoutSuffix = trimmed.replace(/\/openai(\/v1)?$/i, '');
+
+  return `${withoutSuffix}/openai/v1`;
+}
+
+/**
  * Resolves configuration from an env-shaped object rather than reading
  * process.env directly, so every permutation is testable.
  *
@@ -50,8 +68,8 @@ export function resolveAzureConfig(env: Record<string, string | undefined>): Azu
 
   return {
     kind: 'configured',
-    // Trailing slash removed so joining with /openai/v1/ never doubles up.
-    endpoint: read(env, 'AZURE_OPENAI_ENDPOINT')!.replace(/\/+$/, ''),
+    // Normalised to exactly one /openai/v1, whichever form was pasted in.
+    endpoint: normaliseEndpoint(read(env, 'AZURE_OPENAI_ENDPOINT')!),
     judgeDeployment: read(env, 'AZURE_OPENAI_JUDGE_DEPLOYMENT')!,
     bonusDeployment: read(env, 'AZURE_OPENAI_BONUS_DEPLOYMENT')!,
   };
