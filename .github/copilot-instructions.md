@@ -136,6 +136,20 @@ a blob endpoint in Azure, or `UseDevelopmentStorage=true` against Azurite locall
 `App.tsx` shows an error and does **not** record the round, so streak stats cannot be corrupted by a
 guess. The puzzle *fetch* still falls back to `getDailyPuzzleData` so the letter renders offline.
 
+**Telemetry is optional and never load-bearing.** `server/telemetry/` holds a `Telemetry` port with a
+no-op adapter, so call sites record unconditionally without null checks, and a `neverThrows` wrapper
+means a telemetry bug cannot fail a player's round. Domain facts ride as attributes on the request
+span the auto-instrumentation already created, landing as `customDimensions` on request telemetry —
+one query answers "which judge ruled", at no extra ingestion cost. See
+`.scratch/azure-deployment/TELEMETRY.md` for the queries.
+
+⚠️ **`server/telemetry/init.ts` must stay the first import in `server.ts`.** The OpenTelemetry
+instrumentations patch `http` as they load, so anything imported earlier is never instrumented and
+its telemetry vanishes silently. It also calls `dotenv.config()` itself, because it runs before
+`server.ts` reaches its own. Init is wrapped in try/catch: the exporter throws synchronously on a
+connection string it cannot parse, and unguarded that would crash the server before it listens — a
+typo in one env var taking the whole game down.
+
 **State and persistence.** No router and no state library. All game state lives in `App.tsx` and is passed
 down as props; `src/components/` holds presentational components only. Persistence is `localStorage` via
 `src/utils/storage.ts` under versioned keys `npat_game_stats_v1` / `npat_today_result_v1` — bump the `_v1`
