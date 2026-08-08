@@ -129,7 +129,7 @@ describe('scoreVerdict', () => {
   });
 
   it('carries the judge identity through to the evaluation', () => {
-    expect(scoreVerdict(verdict({}, { judgedBy: 'gemini' }), 60).judgedBy).toBe('gemini');
+    expect(scoreVerdict(verdict({}, { judgedBy: 'azure' }), 60).judgedBy).toBe('azure');
   });
 });
 
@@ -182,7 +182,7 @@ describe('evaluateRound', () => {
 describe('withFallback', () => {
   it('uses the primary judge when it succeeds', async () => {
     const judge = withFallback(
-      stubJudge(verdict({}, { judgedBy: 'gemini' })),
+      stubJudge(verdict({}, { judgedBy: 'azure' })),
       stubJudge(verdict({}, { judgedBy: 'heuristic' }))
     );
 
@@ -192,13 +192,13 @@ describe('withFallback', () => {
       bonusChallenge: bonus,
     });
 
-    expect(result.judgedBy).toBe('gemini');
+    expect(result.judgedBy).toBe('azure');
   });
 
   it('falls back and reports the fallback as the judge', async () => {
     const failing: Judge = {
       judge: async () => {
-        throw new Error('gemini exploded');
+        throw new Error('primary judge exploded');
       },
     };
 

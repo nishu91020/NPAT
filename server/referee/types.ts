@@ -30,7 +30,7 @@ export interface JudgeVerdict {
   bonusChallengeMet?: boolean;
 }
 
-/** The seam. Two adapters satisfy it: Gemini in production, heuristic when degraded. */
+/** The seam. Two adapters satisfy it: the AI judge in production, heuristic when degraded. */
 export interface Judge {
   judge(request: JudgeRequest): Promise<JudgeVerdict>;
 }

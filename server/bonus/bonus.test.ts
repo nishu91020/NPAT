@@ -73,7 +73,7 @@ describe('withBonusFallback', () => {
   it('falls back when the primary source throws', async () => {
     const failing: BonusChallengeSource = {
       async next() {
-        throw new Error('gemini exploded');
+        throw new Error('primary source exploded');
       },
     };
 

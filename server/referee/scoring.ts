@@ -12,7 +12,7 @@ export const CATEGORY_KEYS: readonly CategoryKey[] = ['name', 'place', 'animal',
 
 /**
  * The single source of truth for scoring. These numbers previously lived in
- * three places: the Gemini prompt, the local validator, and a second copy of
+ * three places: the AI prompt, the local validator, and a second copy of
  * the speed ladder in the request handler.
  */
 export const SCORING = {

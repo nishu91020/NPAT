@@ -57,7 +57,7 @@ function judgeCategory(
   };
 }
 
-/** Rule-based judge used whenever Gemini is unavailable. */
+/** Rule-based judge used whenever the AI judge is unavailable. */
 export const heuristicJudge: Judge = {
   async judge({ letter, answers, bonusChallenge }: JudgeRequest): Promise<JudgeVerdict> {
     const targetLetter = letter.toUpperCase();

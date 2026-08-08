@@ -1,11 +1,9 @@
 import dotenv from 'dotenv';
 import express from 'express';
 import path from 'path';
-import { GoogleGenAI } from '@google/genai';
 import { getDailyPuzzleData, getRandomPuzzleData } from './src/utils/puzzleData';
 import {
   createAzureJudge,
-  createGeminiJudge,
   evaluateRound,
   heuristicJudge,
   withFallback,
@@ -14,7 +12,6 @@ import {
 import {
   cachedPerDate,
   createAzureBonusSource,
-  createGeminiBonusSource,
   deterministicSourceForDate,
   randomBuiltinSource,
   withBonusFallback,
@@ -39,16 +36,6 @@ app.use(express.json());
 /** Used only when a caller omits the field; the app always sends a real value. */
 const DEFAULT_TIME_TAKEN_SECONDS = 40;
 
-function createGeminiClient(): GoogleGenAI | null {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
-
-  return new GoogleGenAI({
-    apiKey,
-    httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
-  });
-}
-
 /**
  * Resolves Microsoft Foundry configuration. A partial configuration is fatal:
  * silently degrading on a typo means paying for AI judging that never happens.
@@ -67,33 +54,22 @@ function createAzureClientOrExit(): AzureClient | null {
 }
 
 const azure = createAzureClientOrExit();
-const ai = createGeminiClient();
 
 if (azure) {
   console.log('Microsoft Foundry configured; judge deployment:', azure.judgeDeployment);
+} else {
+  console.log('Microsoft Foundry not configured; running on the heuristic judge.');
 }
 
-/**
- * Azure judges when configured, else Gemini, else the heuristic alone.
- * The heuristic always backs whichever AI judge is primary, covering both
- * "not configured" and "the call failed".
- */
-function selectJudge(): Judge {
-  if (azure) return withFallback(createAzureJudge(azure.client, azure.judgeDeployment), heuristicJudge);
-  if (ai) return withFallback(createGeminiJudge(ai), heuristicJudge);
-  return heuristicJudge;
-}
+// The heuristic backs the AI judge, covering both "not configured" and
+// "the call failed".
+const judge: Judge = azure
+  ? withFallback(createAzureJudge(azure.client, azure.judgeDeployment), heuristicJudge)
+  : heuristicJudge;
 
-const judge: Judge = selectJudge();
-
-/** Azure generates bonuses when configured, else Gemini, else the built-ins. */
-function primaryBonusSource(): BonusChallengeSource | null {
-  if (azure) return createAzureBonusSource(azure.client, azure.bonusDeployment);
-  if (ai) return createGeminiBonusSource(ai);
-  return null;
-}
-
-const aiBonusSource = primaryBonusSource();
+const aiBonusSource: BonusChallengeSource | null = azure
+  ? createAzureBonusSource(azure.client, azure.bonusDeployment)
+  : null;
 
 // One generation per date, shared by every player, with the deterministic
 // challenge as the fallback.

@@ -1,4 +1,4 @@
 export * from './types';
 export { randomBuiltinSource, deterministicSourceForDate } from './builtinSource';
-export { createGeminiBonusSource, RENDERABLE_ICONS } from './geminiSource';
+export { RENDERABLE_ICONS } from './icons';
 export { createAzureBonusSource } from './azureSource';

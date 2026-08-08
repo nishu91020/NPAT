@@ -1,7 +1,7 @@
 import type OpenAI from 'openai';
 import { BonusChallenge } from '../../src/types';
 import { BonusChallengeSource } from './types';
-import { RENDERABLE_ICONS } from './geminiSource';
+import { RENDERABLE_ICONS } from './icons';
 
 export { RENDERABLE_ICONS };
 

@@ -9,7 +9,7 @@ why retirement comes last.
 
 **Blocked by:** 02, 04
 
-**Status:** ready-for-agent
+**Status:** skipped
 
 Spec: [../../azure-foundry-migration/spec.md](../../azure-foundry-migration/spec.md) §10
 
@@ -27,3 +27,20 @@ Spec: [../../azure-foundry-migration/spec.md](../../azure-foundry-migration/spec
 - [ ] Cutover gate: >=95% agreement on the clear-cut cases. Below that, stop and report rather than
       proceeding to 07
 - [ ] Note the observed cost of one full run
+
+## Outcome — skipped 2026-08-08
+
+**Skipped by the user.** The formal golden-set diff was never run.
+
+The evidence that stood in for it: live testing on the real deployment showed correct rulings on
+exactly the knowledge the heuristic cannot supply — Shivaji as an Indian warrior king, Nilgai as an
+Indian antelope, Samosa as South Asian food — and a correct refusal of the India bonus for Spain.
+That is a handful of cases, not a hundred, and it was not blind or scored.
+
+**What this means in practice:** there is no measured baseline. If Azure judges worse than Gemini
+did in some category, nobody will notice from this evidence. For a hobby word game with a heuristic
+fallback and no revenue that is a reasonable trade; the cost of being wrong is a mildly unfair round.
+
+Worth knowing if quality is ever questioned later: the diff harness was never built, so re-running
+it would mean building it *and* restoring Gemini, which ticket 07 removes. Rebuilding from git
+history is possible but not free.

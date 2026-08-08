@@ -1,9 +1,8 @@
 # Copilot Instructions — Letters Daily (NPAT)
 
 Daily "Name, Place, Animal, Thing" word puzzle. React 19 + Vite 6 + Tailwind v4 frontend served by an
-Express server that also proxies answer judging to an LLM. **Mid-migration:** Microsoft Foundry is the
-primary provider, Gemini still exists behind the same ports and is being retired — see
-`.scratch/azure-foundry-migration/spec.md` and `.scratch/azure-foundry-build/`.
+Express server that also proxies answer judging to a model on Microsoft Foundry, with a local
+heuristic judge as the fallback.
 
 ## Commands
 
@@ -41,7 +40,7 @@ is a supported mode, not an error — so always verify changes both with and wit
 Microsoft Foundry needs three variables (`AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_JUDGE_DEPLOYMENT`,
 `AZURE_OPENAI_BONUS_DEPLOYMENT`) and **no secret**: auth is Entra ID via `DefaultAzureCredential`,
 which resolves from `az login` locally. Setting *some but not all* of them exits at startup by
-design. `GEMINI_API_KEY` still works until Gemini is retired. See `.env.example`.
+design. See `.env.example`.
 
 Note that `npm start` still runs the Vite dev middleware unless `NODE_ENV=production` is set, and
 `npm run clean` is Unix-only (`rm -rf`).
@@ -55,15 +54,15 @@ that is why the client can `fetch('/api/...')` with relative URLs.
 
 **`src/` is the client, `server/` is server-only.** `server.ts` stays at the repo root as the esbuild
 entry, and imports `server/referee/` and `server/bonus/`. Nothing under `server/` may be imported from
-`src/` — that is what keeps the Gemini SDK and the prompts out of the browser bundle. `src/utils/
+`src/` — that is what keeps the LLM SDK and the prompts out of the browser bundle. `src/utils/
 puzzleData.ts` is the one genuinely shared module (both tiers call `getDailyPuzzleData`), so keep it
 isomorphic: no `window`, no `localStorage`, no Node built-ins.
 
 **Scoring is server-only and lives in exactly one place.** `server/referee/scoring.ts` owns the `SCORING`
 constants, the speed ladder, the points mapping, and the totals. Judges never assign points and never see
 the clock — `JudgeRequest` deliberately omits `timeTakenSeconds`. Adapters satisfying the `Judge` seam:
-`createAzureJudge`, `createGeminiJudge` and `heuristicJudge`, composed by `withFallback`. Selection in
-`server.ts` is **Azure → Gemini → heuristic**. To change how a round scores, edit `SCORING`; to change how
+`createAzureJudge` and `heuristicJudge`, composed by `withFallback`. Selection in
+`server.ts` is **Azure → heuristic**. To change how a round scores, edit `SCORING`; to change how
 words are judged, edit an adapter.
 
 **Strict structured output is why the provider matters.** Azure adapters request
@@ -99,10 +98,6 @@ falling back to the deterministic challenge. Practice mode is intentionally rand
 `App.tsx` shows an error and does **not** record the round, so streak stats cannot be corrupted by a
 guess. The puzzle *fetch* still falls back to `getDailyPuzzleData` so the letter renders offline.
 
-**Gemini usage (being retired).** Both Gemini calls use model `gemini-3.6-flash` with an explicit
-`responseSchema` built from the `Type` enum. Do not add new Gemini call sites — new work goes through the
-Azure adapters.
-
 **State and persistence.** No router and no state library. All game state lives in `App.tsx` and is passed
 down as props; `src/components/` holds presentational components only. Persistence is `localStorage` via
 `src/utils/storage.ts` under versioned keys `npat_game_stats_v1` / `npat_today_result_v1` — bump the `_v1`
@@ -114,11 +109,10 @@ context is unavailable and swallows errors, because browsers block audio before 
 
 ## Conventions and gotchas
 
-- **Every adapter takes an injected client.** `createAzureJudge(client, deployment)`,
-  `createAzureBonusSource(client, deployment)`, `createGeminiJudge(ai)` and `createGeminiBonusSource(ai)`
-  all accept a client rather than constructing one — that is what makes them testable. See the fake
-  clients in `server/referee/azureJudge.test.ts` and `server/azure/client.test.ts`. Always throw on a
-  malformed response so `withFallback` engages.
+- **Every adapter takes an injected client.** `createAzureJudge(client, deployment)` and
+  `createAzureBonusSource(client, deployment)` accept a client rather than constructing one — that is
+  what makes them testable. See the fake clients in `server/referee/azureJudge.test.ts` and
+  `server/azure/client.test.ts`. Always throw on a malformed response so `withFallback` engages.
 - **The `model` argument is the *deployment* name**, not the model name — the single easiest thing to get
   wrong on Azure. Deployment names ride on the `AzureClient` object.
 - **Do not use the SDK's `AzureOpenAI` class.** It requires an `apiVersion` and rewrites requests onto the
@@ -127,7 +121,7 @@ context is unavailable and swallows errors, because browsers block audio before 
   tokens. The scope is `https://ai.azure.com/.default`; the older `cognitiveservices` scope 401s here.
   Both facts are pinned by tests.
 - **Bonus challenge icons are constrained at the source.** `RENDERABLE_ICONS` in
-  `server/bonus/geminiSource.ts` is shared by both providers — it is the list offered to the model *and*
+  `server/bonus/icons.ts` is the list offered to the model *and*
   the clamp applied to its answer. It must stay in lockstep with `ICON_MAP` in `LetterBanner.tsx`.
 - **Streak math exists twice**: `App.tsx#handleSubmitAnswers` computes a streak for the result object,
   while `storage.ts#recordGameCompletion` independently recomputes the persisted value. Update both.
@@ -153,8 +147,6 @@ context is unavailable and swallows errors, because browsers block audio before 
   existing code imports relatively (`../utils/audio`).
 - **Do not change the HMR block in `vite.config.ts`.** It is driven by the `DISABLE_HMR` env var so AI Studio
   can disable file watching during agent edits, and it carries an explicit "do not modify" comment.
-- **Gemini usage.** Both AI calls live behind ports in `server/`. `GEMINI_API_KEY` remains optional —
-  verify changes both with and without it, since the heuristic path is a supported mode, not an error.
 - **SEO content is hand-maintained in two places**: the JSON-LD `WebApplication` + `FAQPage` blocks in
   `index.html` and the visible copy in `SeoFaqSection.tsx`. Both still hardcode scoring prose that has
   drifted from `SCORING` — the FAQ advertises "+5 to +10". Rendering these from `SCORING` is an open
