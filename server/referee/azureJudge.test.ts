@@ -273,12 +273,17 @@ describe('createAzureJudge', () => {
       await expect(createAzureJudge(client, DEPLOYMENT).judge(request)).rejects.toThrow(/refused/);
     });
 
-    it('throws when the response was filtered', async () => {
+    it('does not throw on a filtered response — isolation handles it instead', async () => {
+      // See contentFilter.test.ts. A filtered round must not reach the
+      // heuristic, or blocked content would be laundered into a score.
       const { client } = fakeClient({
         choices: [{ message: { content: null }, finish_reason: 'content_filter' }],
       });
 
-      await expect(createAzureJudge(client, DEPLOYMENT).judge(request)).rejects.toThrow(/filtered/);
+      const verdict = await createAzureJudge(client, DEPLOYMENT).judge(request);
+
+      expect(verdict.judgedBy).toBe('azure');
+      expect(verdict.categories.name.valid).toBe(false);
     });
 
     it('throws when the response was truncated', async () => {
