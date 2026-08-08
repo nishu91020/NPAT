@@ -72,6 +72,30 @@ stay as prompt instructions and the parsers stay defensive. The judge schema is 
 defines the category shape once and **inlines it four times** — no `$ref`/`$defs` on the wire, since
 strict-mode support for references is unverified. Tests pin all of this.
 
+**The model is not trusted with anything mechanically decidable.** Two guards sit between the judge
+and the score, both added after live output was observed getting it wrong:
+
+- `enforceTargetLetter` in `azureJudge.ts` overrules the model on whether an answer starts with the
+  target letter. A strongly on-theme answer (`Tiger` under an India bonus, for letter S) was seen
+  scoring full marks. Category validity and bonus matching still need world knowledge and stay with
+  the judge.
+- **Field order in the schema is load-bearing.** `bonusEvidence` is generated *before* `bonusMatched`
+  so the model reasons before committing; it was otherwise prone to asserting a bonus match its own
+  feedback then contradicted. The evidence shapes generation only and is deliberately dropped rather
+  than carried into `JudgeVerdict`. `bonusMatched` is additionally forced false when `valid` is false,
+  and `scoreVerdict` requires the judge *and* the per-category count to agree on `bonusChallengeMet`
+  — a judge may be stricter than the threshold, never looser.
+
+Both failures were **intermittent**, so a single passing run proves nothing here. Re-run a live check
+several times before believing a prompt change fixed something.
+
+**Generated bonus challenges must pass two tests**, encoded in `BONUS_SYSTEM_PROMPT`: *possible*
+(never ask a category to be something it cannot be — no Name is a plant) and *actually extra* (a rule
+restating "starts with the target letter" is earned for free by every valid answer). Both were real
+observed failures, the second caused by fixing the first. Rules are drawn from a named
+`RULE_FAMILIES` entry per request, because the model otherwise anchors on whichever example it saw
+first and returns near-identical challenges every round.
+
 **The heuristic judge only claims what it can verify.** It awards `long_words` and `vowel_rich` because
 those are checkable from the word alone, and declines the five knowledge-based challenges rather than
 guessing. It is a degraded mode — it runs when no provider is configured or the AI call fails — so scores
@@ -123,6 +147,10 @@ context is unavailable and swallows errors, because browsers block audio before 
 - **Bonus challenge icons are constrained at the source.** `RENDERABLE_ICONS` in
   `server/bonus/icons.ts` is the list offered to the model *and*
   the clamp applied to its answer. It must stay in lockstep with `ICON_MAP` in `LetterBanner.tsx`.
+- **A wrong answer carries a `suggestion`.** The judge returns one example that would have worked;
+  the result card renders it as "Try: …". It is `undefined` rather than `''` when absent, and
+  `enforceTargetLetter` keeps a suggestion only when the suggestion itself starts with the target
+  letter — a suggestion that would have been rejected is worse than none.
 - **Streak math exists twice**: `App.tsx#handleSubmitAnswers` computes a streak for the result object,
   while `storage.ts#recordGameCompletion` independently recomputes the persisted value. Update both.
 - **`judgedBy` is the provenance field, and it is persisted.** It is typed in `src/types.ts` and optional
