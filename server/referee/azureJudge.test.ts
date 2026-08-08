@@ -40,7 +40,13 @@ function messageContent(content: string, extra: Record<string, unknown> = {}) {
 }
 
 function fullVerdict(over: Record<string, unknown> = {}) {
-  const category = { valid: true, bonusMatched: true, feedback: 'Nice' };
+  const category = {
+    valid: true,
+    bonusEvidence: 'Fits the rule.',
+    bonusMatched: true,
+    feedback: 'Nice',
+    suggestion: '',
+  };
   return JSON.stringify({
     categories: { name: category, place: category, animal: category, thing: category },
     overallFeedback: 'Well played',
@@ -66,6 +72,20 @@ describe('buildVerdictSchema', () => {
     for (const obj of objects) {
       expect(obj.additionalProperties).toBe(false);
     }
+  });
+
+  it('orders bonusEvidence before bonusMatched, so reasoning precedes the verdict', () => {
+    // Structured output is generated in schema order. Observed live: the model
+    // asserted a bonus match its own feedback then contradicted.
+    const props = Object.keys(schema.properties.categories.properties.name.properties);
+
+    expect(props.indexOf('bonusEvidence')).toBeLessThan(props.indexOf('bonusMatched'));
+  });
+
+  it('asks for a suggestion, so a wrong answer can be shown a right one', () => {
+    expect(schema.properties.categories.properties.name.properties.suggestion).toEqual({
+      type: 'string',
+    });
   });
 
   it('lists every property as required, as strict mode requires', () => {
@@ -166,11 +186,71 @@ describe('createAzureJudge', () => {
     expect(verdict.judgedBy).toBe('azure');
     expect(verdict.overallFeedback).toBe('Well played');
     expect(verdict.bonusChallengeMet).toBe(true);
-    expect(verdict.categories.name).toEqual({
+    expect(verdict.categories.name).toMatchObject({
       valid: true,
       bonusMatched: true,
       feedback: 'Nice',
     });
+  });
+
+  it('does not carry bonusEvidence into the verdict — it only shapes generation', async () => {
+    const { client } = fakeClient(messageContent(fullVerdict()));
+
+    const verdict = await createAzureJudge(client, DEPLOYMENT).judge(request);
+
+    expect(verdict.categories.name).not.toHaveProperty('bonusEvidence');
+  });
+
+  it('keeps a suggestion for an answer that was wrong', async () => {
+    const { client } = fakeClient(
+      messageContent(
+        JSON.stringify({
+          categories: {
+            name: {
+              valid: false,
+              bonusEvidence: 'n/a',
+              bonusMatched: false,
+              feedback: 'Not a name.',
+              suggestion: 'Sarah',
+            },
+            place: { valid: true, bonusEvidence: 'x', bonusMatched: false, feedback: 'x', suggestion: '' },
+            animal: { valid: true, bonusEvidence: 'x', bonusMatched: false, feedback: 'x', suggestion: '' },
+            thing: { valid: true, bonusEvidence: 'x', bonusMatched: false, feedback: 'x', suggestion: '' },
+          },
+        })
+      )
+    );
+
+    const verdict = await createAzureJudge(client, DEPLOYMENT).judge(request);
+
+    expect(verdict.categories.name.suggestion).toBe('Sarah');
+    // A correct answer needs no suggestion, and an empty string is not one.
+    expect(verdict.categories.place.suggestion).toBeUndefined();
+  });
+
+  it('refuses a bonus match on an answer it just called invalid', async () => {
+    const { client } = fakeClient(
+      messageContent(
+        JSON.stringify({
+          categories: {
+            name: {
+              valid: false,
+              bonusEvidence: 'Contradicts itself.',
+              bonusMatched: true,
+              feedback: 'Not valid.',
+              suggestion: 'Sarah',
+            },
+            place: { valid: true, bonusEvidence: 'x', bonusMatched: false, feedback: 'x', suggestion: '' },
+            animal: { valid: true, bonusEvidence: 'x', bonusMatched: false, feedback: 'x', suggestion: '' },
+            thing: { valid: true, bonusEvidence: 'x', bonusMatched: false, feedback: 'x', suggestion: '' },
+          },
+        })
+      )
+    );
+
+    const verdict = await createAzureJudge(client, DEPLOYMENT).judge(request);
+
+    expect(verdict.categories.name.bonusMatched).toBe(false);
   });
 
   it('never returns points, even if the model sends them anyway', async () => {

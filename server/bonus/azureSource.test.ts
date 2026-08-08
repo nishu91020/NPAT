@@ -3,9 +3,11 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   BONUS_SYSTEM_PROMPT,
   RENDERABLE_ICONS,
+  RULE_FAMILIES,
   buildBonusSchema,
   buildBonusUserPrompt,
   createAzureBonusSource,
+  pickRuleFamily,
 } from './azureSource';
 
 const DEPLOYMENT = 'npat-bonus';
@@ -64,6 +66,47 @@ describe('prompt split', () => {
 
   it('uppercases the target letter', () => {
     expect(buildBonusUserPrompt('s')).toContain('"S"');
+  });
+
+  it('rules out challenges a category could never satisfy', () => {
+    // Observed live: "Use only plants or flowers for all answers" — impossible,
+    // since a Name is a person and an Animal is a creature.
+    expect(BONUS_SYSTEM_PROMPT).toContain('IS IT POSSIBLE');
+    expect(BONUS_SYSTEM_PROMPT).toContain('All answers must be plants');
+  });
+
+  it('rules out challenges that merely restate the target letter', () => {
+    // Observed live after the first fix: "Every answer must start with F",
+    // which every valid answer earns for free.
+    expect(BONUS_SYSTEM_PROMPT).toContain('IS IT ACTUALLY EXTRA');
+    expect(BONUS_SYSTEM_PROMPT).toContain('Every answer must start with F');
+  });
+});
+
+describe('rule families', () => {
+  it('names a family in the per-request message', () => {
+    const prompt = buildBonusUserPrompt('S', 'a rule about word length');
+
+    expect(prompt).toContain('a rule about word length');
+  });
+
+  it('picks a family from the list', () => {
+    expect(RULE_FAMILIES).toContain(pickRuleFamily(() => 0));
+    expect(RULE_FAMILIES).toContain(pickRuleFamily(() => 0.999));
+  });
+
+  it('spans word shape, themes and single categories, so rounds vary', () => {
+    const all = RULE_FAMILIES.join(' ');
+
+    expect(all).toContain('word length');
+    expect(all).toContain('shared theme');
+    expect(all).toContain('only the Thing');
+  });
+
+  it('never selects out of range', () => {
+    for (const r of [0, 0.5, 0.9999]) {
+      expect(pickRuleFamily(() => r)).toBeDefined();
+    }
   });
 });
 

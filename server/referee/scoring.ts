@@ -68,13 +68,19 @@ export function scoreVerdict(verdict: JudgeVerdict, timeTakenSeconds: number): R
   }
 
   const speedBonus = speedBonusFor(timeTakenSeconds);
+  const meetsThreshold = bonusMatches >= SCORING.bonusChallengeThreshold;
 
   return {
     categories,
     totalScore: baseScore + speedBonus,
     speedBonus,
+    // A judge may hold a stricter view than the threshold — a rule reading "all
+    // four answers" is not met by two. But it may never claim the challenge was
+    // met while its own per-category rulings say otherwise, so both must agree.
     bonusChallengeMet:
-      verdict.bonusChallengeMet ?? bonusMatches >= SCORING.bonusChallengeThreshold,
+      verdict.bonusChallengeMet === undefined
+        ? meetsThreshold
+        : verdict.bonusChallengeMet && meetsThreshold,
     overallFeedback: verdict.overallFeedback ?? defaultOverallFeedback(validCount),
     judgedBy: verdict.judgedBy,
   };

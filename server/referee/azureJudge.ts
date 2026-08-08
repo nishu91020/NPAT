@@ -23,11 +23,16 @@ function categoryJudgementSchema() {
     additionalProperties: false,
     properties: {
       valid: { type: 'boolean' },
+      // Deliberately ordered before bonusMatched. Structured output is generated
+      // in schema order, so stating the evidence first stops the model asserting
+      // a match it then contradicts in its own feedback.
+      bonusEvidence: { type: 'string' },
       bonusMatched: { type: 'boolean' },
       feedback: { type: 'string' },
+      suggestion: { type: 'string' },
     },
     // Strict mode requires every property to be listed.
-    required: ['valid', 'bonusMatched', 'feedback'],
+    required: ['valid', 'bonusEvidence', 'bonusMatched', 'feedback', 'suggestion'],
   };
 }
 
@@ -71,8 +76,10 @@ For each of the four categories you receive, decide:
    - "Place": real city, country, state, river, mountain, or landmark.
    - "Animal": real animal species, bird, fish, reptile, insect, etc.
    - "Thing": real physical object, item, tool, food, vehicle, element, etc.
-3. Bonus Match: only if rules 1 and 2 both passed — does this entry fulfil the active bonus rule you are given? If rule 1 failed, bonusMatched must be false.
-4. Feedback: witty and concise, maximum 10 words per category. When an answer fails rule 1, say so plainly.
+3. bonusEvidence: state in a few words whether this specific answer satisfies the active bonus rule, and why. Write this BEFORE deciding bonusMatched.
+4. bonusMatched: set it to exactly what your bonusEvidence just said. If the evidence says the answer does not satisfy the rule, bonusMatched MUST be false. Never contradict your own evidence. When in doubt, use false. If rule 1 or rule 2 failed, bonusMatched must be false.
+5. feedback: witty and concise, maximum 10 words. It must agree with valid and bonusMatched. When an answer fails rule 1, say so plainly.
+6. suggestion: when valid is false, give ONE example answer that would have worked — a real item in that category starting with the target letter, satisfying the bonus rule if possible. Just the word, nothing else. When valid is true, use an empty string.
 
 Set bonusChallengeMet to true when at least ${SCORING.bonusChallengeThreshold} categories satisfy the bonus rule.
 
@@ -125,6 +132,11 @@ export function enforceTargetLetter(
       feedback: word
         ? `Must start with the letter "${target}".`
         : 'No answer provided.',
+      // Keep the judge's suggestion only if it would itself have been accepted.
+      suggestion:
+        judged.suggestion && judged.suggestion.trim().charAt(0).toUpperCase() === target
+          ? judged.suggestion
+          : undefined,
     };
   }
 
@@ -153,8 +165,11 @@ function parseVerdict(raw: string): JudgeVerdict {
 
     categories[key] = {
       valid: Boolean(judged.valid),
-      bonusMatched: Boolean(judged.bonusMatched),
+      // bonusEvidence exists to shape generation, not to be shown; it is
+      // deliberately not carried into the domain type.
+      bonusMatched: Boolean(judged.valid) && Boolean(judged.bonusMatched),
       feedback: judged.feedback || '',
+      suggestion: judged.suggestion || undefined,
     };
   }
 

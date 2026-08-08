@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { GameResult } from '../types';
 import { generateShareCard } from '../utils/puzzleData';
 import { isAiJudged } from '../utils/judge';
-import { Trophy, Share2, Copy, Check, Sparkles, RefreshCw, Flame, ArrowRight, User, MapPin, Dog, Package, Award } from 'lucide-react';
+import { Trophy, Share2, Copy, Check, Sparkles, RefreshCw, Flame, ArrowRight, User, MapPin, Dog, Package, Award, Lightbulb } from 'lucide-react';
 import { playClickSound, playSuccessSound } from '../utils/audio';
 
 interface ValidationResultCardProps {
@@ -136,6 +136,18 @@ export const ValidationResultCard: React.FC<ValidationResultCardProps> = ({
                 <p className="text-xs font-semibold text-slate-600 mt-2 leading-snug">
                   {item.feedback}
                 </p>
+
+                {!item.valid && item.suggestion && (
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mt-2 pt-2 border-t border-slate-200/70 flex items-center gap-1.5">
+                    <Lightbulb className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    <span>
+                      Try:{' '}
+                      <span className="text-slate-900 font-mono normal-case tracking-normal text-xs">
+                        {item.suggestion}
+                      </span>
+                    </span>
+                  </p>
+                )}
               </div>
             );
           })}

@@ -118,14 +118,44 @@ describe('scoreVerdict', () => {
     expect(two.bonusChallengeMet).toBe(true);
   });
 
-  it('prefers the judge’s own bonusChallengeMet and feedback when supplied', () => {
+  it('respects a judge that is stricter than the threshold', () => {
+    // A rule reading "all four answers" is not met by two, so a judge saying
+    // false overrules the count.
     const scored = scoreVerdict(
-      verdict({}, { bonusChallengeMet: true, overallFeedback: 'Nice work' }),
+      verdict(
+        {
+          name: judgement({ valid: true, bonusMatched: true }),
+          place: judgement({ valid: true, bonusMatched: true }),
+        },
+        { bonusChallengeMet: false }
+      ),
       60
     );
 
-    expect(scored.bonusChallengeMet).toBe(true);
+    expect(scored.bonusChallengeMet).toBe(false);
+  });
+
+  it('never lets a judge claim the challenge its own rulings contradict', () => {
+    // Observed live: the model asserted a match while its own feedback said
+    // otherwise. Both must agree.
+    const scored = scoreVerdict(verdict({}, { bonusChallengeMet: true }), 60);
+
+    expect(scored.bonusChallengeMet).toBe(false);
+  });
+
+  it('uses the judge’s own feedback when supplied', () => {
+    const scored = scoreVerdict(verdict({}, { overallFeedback: 'Nice work' }), 60);
+
     expect(scored.overallFeedback).toBe('Nice work');
+  });
+
+  it('carries a suggestion through to the scored round', () => {
+    const scored = scoreVerdict(
+      verdict({ name: judgement({ valid: false, suggestion: 'Sarah' }) }),
+      60
+    );
+
+    expect(scored.categories.name.suggestion).toBe('Sarah');
   });
 
   it('carries the judge identity through to the evaluation', () => {

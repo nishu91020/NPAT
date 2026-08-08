@@ -31,6 +31,8 @@ export interface CategoryValidation {
   points: number;
   bonusMatched: boolean;
   feedback: string;
+  /** An example of an answer that would have worked. Absent when none is needed. */
+  suggestion?: string;
 }
 
 export interface ValidationResponse {

@@ -20,6 +20,8 @@ export interface CategoryJudgement {
   valid: boolean;
   bonusMatched: boolean;
   feedback: string;
+  /** An example of an answer that would have worked. Empty when none is needed. */
+  suggestion?: string;
 }
 
 export interface JudgeVerdict {

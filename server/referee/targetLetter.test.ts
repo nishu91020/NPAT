@@ -99,6 +99,26 @@ describe('enforceTargetLetter', () => {
     expect(corrected.categories.thing.valid).toBe(false);
     expect(corrected.categories.thing.feedback).toBe('Zzzz is not a thing.');
   });
+
+  describe('suggestions survive correction only if they would themselves pass', () => {
+    it('keeps a suggestion that starts with the target letter', () => {
+      const verdict = overGenerousVerdict();
+      verdict.categories.animal.suggestion = 'Snake';
+
+      const corrected = enforceTargetLetter(verdict, 'S', answers);
+
+      expect(corrected.categories.animal.suggestion).toBe('Snake');
+    });
+
+    it('drops a suggestion that would itself have been rejected', () => {
+      const verdict = overGenerousVerdict();
+      verdict.categories.animal.suggestion = 'Elephant';
+
+      const corrected = enforceTargetLetter(verdict, 'S', answers);
+
+      expect(corrected.categories.animal.suggestion).toBeUndefined();
+    });
+  });
 });
 
 describe('createAzureJudge applies the letter rule', () => {
