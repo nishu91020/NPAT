@@ -7,6 +7,7 @@ import {
   harmCategoriesFrom,
   isContentFilterRejection,
   onlyCategory,
+  unscoreableCategories,
   withoutCategories,
 } from './contentFilter';
 
@@ -98,6 +99,50 @@ describe('request narrowing', () => {
       animal: 'Shark',
       thing: '',
     });
+  });
+});
+
+describe('unscoreableCategories', () => {
+  it('is empty for a normally judged round', () => {
+    const ok = {
+      valid: true,
+      bonusMatched: false,
+      feedback: 'Nice',
+    };
+
+    expect(
+      unscoreableCategories({ name: ok, place: ok, animal: ok, thing: ok })
+    ).toEqual([]);
+  });
+
+  it('does not mistake an ordinary rejection for a filtered one', () => {
+    const rejected = {
+      valid: false,
+      bonusMatched: false,
+      feedback: 'Must start with the letter "S".',
+    };
+
+    expect(
+      unscoreableCategories({
+        name: rejected,
+        place: rejected,
+        animal: rejected,
+        thing: rejected,
+      })
+    ).toEqual([]);
+  });
+
+  it('names a category the filter refused to judge', () => {
+    const ok = { valid: true, bonusMatched: false, feedback: 'Nice' };
+
+    expect(
+      unscoreableCategories({
+        name: ok,
+        place: ok,
+        animal: ok,
+        thing: { ...UNSCOREABLE },
+      })
+    ).toEqual(['thing']);
   });
 });
 

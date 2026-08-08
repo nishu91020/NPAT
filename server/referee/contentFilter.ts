@@ -1,6 +1,5 @@
 import { CategoryKey, UserAnswers } from '../../src/types';
 import { CategoryJudgement, JudgeRequest } from './types';
-
 /**
  * Raised when Microsoft Foundry's content filter rejects a request. Distinct
  * from a transient failure: it is permanent for that content, so retrying the
@@ -47,6 +46,19 @@ export function harmCategoriesFrom(err: unknown): string[] {
 }
 
 const EMPTY_ANSWERS: UserAnswers = { name: '', place: '', animal: '', thing: '' };
+
+/**
+ * Which categories the content filter refused to judge.
+ *
+ * Recognised by identity with UNSCOREABLE's feedback rather than by a flag,
+ * because the judgement type is deliberately narrow — but exposed here so
+ * callers do not string-match it themselves.
+ */
+export function unscoreableCategories(categories: Record<CategoryKey, CategoryJudgement>) {
+  return (Object.keys(categories) as CategoryKey[]).filter(
+    (key) => categories[key].feedback === UNSCOREABLE.feedback
+  );
+}
 
 /** The round with only one answer present, used to attribute a rejection. */
 export function onlyCategory(request: JudgeRequest, key: CategoryKey): JudgeRequest {

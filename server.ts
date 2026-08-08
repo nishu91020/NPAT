@@ -1,3 +1,7 @@
+// MUST be first: the OpenTelemetry instrumentations patch `http` when they
+// load, so anything imported before this is never instrumented.
+import { flushTelemetry, telemetryStarted } from './server/telemetry/init';
+
 import dotenv from 'dotenv';
 import express from 'express';
 import path from 'path';
@@ -6,6 +10,7 @@ import {
   createAzureJudge,
   evaluateRound,
   heuristicJudge,
+  unscoreableCategories,
   withFallback,
   type Judge,
 } from './server/referee';
@@ -26,6 +31,12 @@ import {
   resolveAzureConfig,
   type AzureClient,
 } from './server/azure';
+
+import {
+  createAzureMonitorTelemetry,
+  noopTelemetry,
+  type Telemetry,
+} from './server/telemetry';
 
 // Load environment variables for server runtime.
 dotenv.config({ path: '.env' });
@@ -93,6 +104,13 @@ function createDailyChallengeStore(): DailyChallengeStore {
 
 const dailyChallengeStore = createDailyChallengeStore();
 
+/**
+ * Telemetry is optional. Keyed off whether instrumentation actually started,
+ * not merely whether it was configured — a connection string the exporter
+ * rejected leaves nothing to record into.
+ */
+const telemetry: Telemetry = telemetryStarted ? createAzureMonitorTelemetry() : noopTelemetry;
+
 // One generation per date, shared by every player, with the deterministic
 // challenge as the fallback.
 const dailyBonus = cachedPerDate(
@@ -100,7 +118,10 @@ const dailyBonus = cachedPerDate(
     aiBonusSource
       ? withBonusFallback(aiBonusSource, deterministicSourceForDate(dateStr))
       : deterministicSourceForDate(dateStr),
-  { store: dailyChallengeStore }
+  {
+    store: dailyChallengeStore,
+    onServed: (origin, dateStr) => telemetry.dailyChallengeServed({ origin, dateStr }),
+  }
 );
 
 const practiceBonus: BonusChallengeSource = aiBonusSource
@@ -139,8 +160,11 @@ app.post('/api/validate', async (req, res) => {
     return res.status(400).json({ error: 'Missing letter or answers' });
   }
 
+  const started = Date.now();
+  let evaluation;
+
   try {
-    const evaluation = await evaluateRound(
+    evaluation = await evaluateRound(
       {
         letter,
         answers,
@@ -150,12 +174,22 @@ app.post('/api/validate', async (req, res) => {
       },
       judge
     );
-
-    res.json(evaluation);
   } catch (err) {
     console.error('Round evaluation failed:', err);
-    res.status(500).json({ error: 'Could not evaluate this round' });
+    telemetry.failure('validate', err);
+    return res.status(500).json({ error: 'Could not evaluate this round' });
   }
+
+  res.json(evaluation);
+
+  // Recorded after the response and outside the try, so nothing about measuring
+  // a round can turn a successful one into a failure.
+  telemetry.roundJudged({
+    judgedBy: evaluation.judgedBy,
+    durationMs: Date.now() - started,
+    totalScore: evaluation.totalScore,
+    filteredCategories: unscoreableCategories(evaluation.categories),
+  });
 });
 
 async function startServer() {
@@ -183,7 +217,14 @@ async function startServer() {
   // player's submitted answers.
   const shutdown = (signal: string) => {
     console.log(`${signal} received, closing server.`);
-    server.close(() => process.exit(0));
+
+    server.close(async () => {
+      // Spans sit in a batch processor for a few seconds. Without this flush the
+      // telemetry from a replica being recycled is lost — which is exactly the
+      // window where a heuristic fallback or a failure matters most.
+      await flushTelemetry();
+      process.exit(0);
+    });
 
     // Do not hang forever on a stuck connection.
     setTimeout(() => process.exit(0), 10_000).unref();

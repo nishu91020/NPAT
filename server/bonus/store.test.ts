@@ -117,6 +117,89 @@ describe('cachedPerDate with a shared store', () => {
   });
 });
 
+describe('cachedPerDate origin reporting', () => {
+  it('reports "generated" the first time, then "memory"', async () => {
+    const origins: string[] = [];
+    const daily = cachedPerDate(() => countingSource('a'), {
+      store: createMemoryStore(),
+      onServed: (origin) => origins.push(origin),
+    });
+
+    await daily.forDate(DATE, 'S');
+    await daily.forDate(DATE, 'S');
+
+    expect(origins).toEqual(['generated', 'memory']);
+  });
+
+  it('reports "store" when another replica had already published', async () => {
+    const store = createMemoryStore();
+    const origins: string[] = [];
+
+    await cachedPerDate(() => countingSource('a'), { store }).forDate(DATE, 'S');
+
+    // A second replica, with its own empty memory cache.
+    await cachedPerDate(() => countingSource('b'), {
+      store,
+      onServed: (origin) => origins.push(origin),
+    }).forDate(DATE, 'S');
+
+    expect(origins).toEqual(['store']);
+  });
+
+  it('reports "store", not "generated", when it loses the write race', async () => {
+    // Both replicas miss the empty store and generate, but only one write wins.
+    // Reporting the loser as 'generated' would show two generations for a date
+    // that was only generated once — the exact thing this dimension exists to
+    // observe.
+    const store = createMemoryStore();
+    const origins: string[] = [];
+
+    await Promise.all([
+      cachedPerDate(() => countingSource('a'), {
+        store,
+        onServed: (origin) => origins.push(origin),
+      }).forDate(DATE, 'S'),
+      cachedPerDate(() => countingSource('b'), {
+        store,
+        onServed: (origin) => origins.push(origin),
+      }).forDate(DATE, 'S'),
+    ]);
+
+    expect(origins.filter((o) => o === 'generated')).toHaveLength(1);
+    expect(origins.filter((o) => o === 'store')).toHaveLength(1);
+  });
+
+  it('passes the date through, so telemetry can tell days apart', async () => {
+    const seen: string[] = [];
+    const daily = cachedPerDate(() => countingSource('a'), {
+      store: createMemoryStore(),
+      onServed: (_origin, dateStr) => seen.push(dateStr),
+    });
+
+    await daily.forDate('2026-08-08', 'S');
+    await daily.forDate('2026-08-09', 'T');
+
+    expect(seen).toEqual(['2026-08-08', '2026-08-09']);
+  });
+
+  it('does not report an origin when generation failed', async () => {
+    const origins: string[] = [];
+    const failing = {
+      async next() {
+        throw new Error('generation failed');
+      },
+    };
+
+    const daily = cachedPerDate(() => failing, {
+      store: createMemoryStore(),
+      onServed: (origin) => origins.push(origin),
+    });
+
+    await expect(daily.forDate(DATE, 'S')).rejects.toThrow();
+    expect(origins).toEqual([]);
+  });
+});
+
 describe('createMemoryStore', () => {
   it('returns null for a date it has never seen', async () => {
     expect(await createMemoryStore().get(DATE)).toBeNull();

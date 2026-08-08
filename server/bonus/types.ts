@@ -1,4 +1,5 @@
 import { BonusChallenge } from '../../src/types';
+import { DailyChallengeOrigin } from '../telemetry/types';
 import { DailyChallengeStore, nullStore } from './store';
 
 /** The seam for producing a bonus challenge. */
@@ -42,27 +43,50 @@ export function withBonusFallback(
  */
 export function cachedPerDate(
   sourceFor: (dateStr: string) => BonusChallengeSource,
-  options: { store?: DailyChallengeStore; maxDays?: number } = {}
+  options: {
+    store?: DailyChallengeStore;
+    maxDays?: number;
+    /**
+     * Notified with how each request was satisfied. Kept as a callback so this
+     * module stays ignorant of telemetry, and so the existing return type does
+     * not change for callers that do not care.
+     */
+    onServed?: (origin: DailyChallengeOrigin, dateStr: string) => void;
+  } = {}
 ) {
   const store = options.store ?? nullStore;
   const maxDays = options.maxDays ?? 7;
+  const onServed = options.onServed ?? (() => {});
   const cache = new Map<string, Promise<BonusChallenge>>();
 
   async function resolve(dateStr: string, letter: string): Promise<BonusChallenge> {
     const stored = await store.get(dateStr);
-    if (stored) return stored;
+    if (stored) {
+      onServed('store', dateStr);
+      return stored;
+    }
 
     const generated = await sourceFor(dateStr).next(letter);
 
     // Another replica may have published one between the read and now; whichever
     // is stored wins, so every player sees the same challenge.
-    return store.putIfAbsent(dateStr, generated);
+    const published = await store.putIfAbsent(dateStr, generated);
+
+    // Losing that race means this replica adopted someone else's value, which
+    // is a store hit, not a local generation. Reporting it as 'generated' would
+    // show N generations for a date that was only generated once.
+    onServed(published === generated ? 'generated' : 'store', dateStr);
+
+    return published;
   }
 
   return {
     async forDate(dateStr: string, letter: string): Promise<BonusChallenge> {
       const cached = cache.get(dateStr);
-      if (cached) return cached;
+      if (cached) {
+        onServed('memory', dateStr);
+        return cached;
+      }
 
       const pending = resolve(dateStr, letter);
       cache.set(dateStr, pending);
