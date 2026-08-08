@@ -31,3 +31,24 @@ which the user is doing manually. Ticket 01 can be built and tested before it ex
 
 One ticket per fresh context window. Each is self-contained; the previous one's context is
 disposable. Every ticket lands green — lint, tests, and build pass at every step.
+
+## Status
+
+| Ticket | State |
+|---|---|
+| 01 config and client | done |
+| 02 judge adapter | done, live verification pending a deployment |
+| 03 content filter | done |
+| 04 bonus source | done |
+| 05 judgedBy badge | done |
+| 06 golden-set diff | **blocked** — needs live Azure *and* live Gemini to diff against |
+| 07 retire Gemini | blocked by 06 |
+
+Everything buildable without cloud credentials is built: 126 tests, lint and build green. The
+remaining two tickets are blocked on the provisioning step in
+[../azure-foundry-migration/issues/04-provision-foundry-resource.md](../azure-foundry-migration/issues/04-provision-foundry-resource.md),
+which the user is doing manually.
+
+Note the provisioning step now has a hard dependency on the RBAC role assignment: authentication is
+Entra ID with no API-key fallback, so without the *Cognitive Services OpenAI User* role every call
+401s.

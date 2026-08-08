@@ -1,7 +1,9 @@
 # Copilot Instructions — Letters Daily (NPAT)
 
 Daily "Name, Place, Animal, Thing" word puzzle. React 19 + Vite 6 + Tailwind v4 frontend served by an
-Express server that also proxies answer validation to the Gemini API.
+Express server that also proxies answer judging to an LLM. **Mid-migration:** Microsoft Foundry is the
+primary provider, Gemini still exists behind the same ports and is being retired — see
+`.scratch/azure-foundry-migration/spec.md` and `.scratch/azure-foundry-build/`.
 
 ## Commands
 
@@ -33,9 +35,16 @@ curl -X POST "http://localhost:3000/api/validate" -H "Content-Type: application/
   -d '{"letter":"I","answers":{"name":"Ivan","place":"India","animal":"Iguana","thing":"Ice"},"bonusChallenge":{"id":"long_words","title":"t","description":"d","icon":"Sparkles","ruleHint":"r"},"timeTakenSeconds":18}'
 ```
 
-`GEMINI_API_KEY` goes in `.env` (gitignored). It is **optional** — every AI path has a local fallback, so
-always verify changes work both with and without the key. Note that `npm start` still runs the Vite dev
-middleware unless `NODE_ENV=production` is set, and `npm run clean` is Unix-only (`rm -rf`).
+**LLM configuration is optional.** With nothing configured the app runs on the heuristic judge, which
+is a supported mode, not an error — so always verify changes both with and without it.
+
+Microsoft Foundry needs three variables (`AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_JUDGE_DEPLOYMENT`,
+`AZURE_OPENAI_BONUS_DEPLOYMENT`) and **no secret**: auth is Entra ID via `DefaultAzureCredential`,
+which resolves from `az login` locally. Setting *some but not all* of them exits at startup by
+design. `GEMINI_API_KEY` still works until Gemini is retired. See `.env.example`.
+
+Note that `npm start` still runs the Vite dev middleware unless `NODE_ENV=production` is set, and
+`npm run clean` is Unix-only (`rm -rf`).
 
 ## Architecture
 
@@ -52,14 +61,30 @@ isomorphic: no `window`, no `localStorage`, no Node built-ins.
 
 **Scoring is server-only and lives in exactly one place.** `server/referee/scoring.ts` owns the `SCORING`
 constants, the speed ladder, the points mapping, and the totals. Judges never assign points and never see
-the clock — `JudgeRequest` deliberately omits `timeTakenSeconds`. Two adapters satisfy the `Judge` seam:
-`createGeminiJudge` and `heuristicJudge`, composed by `withFallback`. To change how a round scores, edit
-`SCORING`; to change how words are judged, edit an adapter.
+the clock — `JudgeRequest` deliberately omits `timeTakenSeconds`. Adapters satisfying the `Judge` seam:
+`createAzureJudge`, `createGeminiJudge` and `heuristicJudge`, composed by `withFallback`. Selection in
+`server.ts` is **Azure → Gemini → heuristic**. To change how a round scores, edit `SCORING`; to change how
+words are judged, edit an adapter.
+
+**Strict structured output is why the provider matters.** Azure adapters request
+`response_format: { type: 'json_schema', strict: true }`, which requires `additionalProperties: false` on
+every object and every property in `required`. Strict mode cannot express `maxLength`, so length limits
+stay as prompt instructions and the parsers stay defensive. The judge schema is built by a function that
+defines the category shape once and **inlines it four times** — no `$ref`/`$defs` on the wire, since
+strict-mode support for references is unverified. Tests pin all of this.
 
 **The heuristic judge only claims what it can verify.** It awards `long_words` and `vowel_rich` because
 those are checkable from the word alone, and declines the five knowledge-based challenges rather than
-guessing. It is a degraded mode — it runs when `GEMINI_API_KEY` is missing or Gemini fails — so scores
+guessing. It is a degraded mode — it runs when no provider is configured or the AI call fails — so scores
 are legitimately lower than an AI-judged round. `judgedBy` on the response records which one ruled.
+
+**Content filtering is a first-class failure mode, not an error path.** Azure filters *input* as well as
+output, and this game feeds player-typed words into a prompt. A `content_filter` rejection must never be
+retried and must never fall through to the heuristic, which would launder blocked content into a score.
+Because the filter rejects the whole prompt without saying which answer caused it,
+`server/referee/contentFilter.ts` + `azureJudge.ts` attribute it by submitting each non-empty answer
+alone, then re-judge with the blocked ones blanked. Those probes are **not retries** — each carries
+different content, and a test asserts the original request is never repeated unchanged.
 
 **Puzzle generation is deterministic, not stored.** `getDailyPuzzleData(dateStr)` hashes the `YYYY-MM-DD`
 string to pick a letter from `AVAILABLE_LETTERS` (Q/U/X/Y/Z are deliberately excluded) and a bonus
@@ -74,9 +99,9 @@ falling back to the deterministic challenge. Practice mode is intentionally rand
 `App.tsx` shows an error and does **not** record the round, so streak stats cannot be corrupted by a
 guess. The puzzle *fetch* still falls back to `getDailyPuzzleData` so the letter renders offline.
 
-**Gemini usage.** Both AI calls use model `gemini-3.6-flash` with `responseMimeType: 'application/json'`
-plus an explicit `responseSchema` built from the `Type` enum. New AI endpoints should follow that pattern
-rather than parsing free-form text.
+**Gemini usage (being retired).** Both Gemini calls use model `gemini-3.6-flash` with an explicit
+`responseSchema` built from the `Type` enum. Do not add new Gemini call sites — new work goes through the
+Azure adapters.
 
 **State and persistence.** No router and no state library. All game state lives in `App.tsx` and is passed
 down as props; `src/components/` holds presentational components only. Persistence is `localStorage` via
@@ -89,19 +114,29 @@ context is unavailable and swallows errors, because browsers block audio before 
 
 ## Conventions and gotchas
 
-- **Both Gemini adapters take an injected client.** `createGeminiJudge(ai)` and
-  `createGeminiBonusSource(ai)` accept a `GoogleGenAI` rather than constructing one, which is what makes
-  them testable — see the fake client in `server/referee/geminiJudge.test.ts`. Both use
-  `responseMimeType: 'application/json'` with an explicit `responseSchema`; follow that pattern rather
-  than parsing free-form text, and throw on a malformed response so `withFallback` engages.
+- **Every adapter takes an injected client.** `createAzureJudge(client, deployment)`,
+  `createAzureBonusSource(client, deployment)`, `createGeminiJudge(ai)` and `createGeminiBonusSource(ai)`
+  all accept a client rather than constructing one — that is what makes them testable. See the fake
+  clients in `server/referee/azureJudge.test.ts` and `server/azure/client.test.ts`. Always throw on a
+  malformed response so `withFallback` engages.
+- **The `model` argument is the *deployment* name**, not the model name — the single easiest thing to get
+  wrong on Azure. Deployment names ride on the `AzureClient` object.
+- **Do not use the SDK's `AzureOpenAI` class.** It requires an `apiVersion` and rewrites requests onto the
+  legacy `/openai/deployments/{name}/` path. The base `OpenAI` client is used instead, with `apiKey` set
+  to a token-provider function that the SDK calls per request — which is what refreshes expiring Entra
+  tokens. The scope is `https://ai.azure.com/.default`; the older `cognitiveservices` scope 401s here.
+  Both facts are pinned by tests.
 - **Bonus challenge icons are constrained at the source.** `RENDERABLE_ICONS` in
-  `server/bonus/geminiSource.ts` is the list offered to the model *and* the clamp applied to its answer.
-  It must stay in lockstep with `ICON_MAP` in `LetterBanner.tsx`; adding an icon means editing both.
+  `server/bonus/geminiSource.ts` is shared by both providers — it is the list offered to the model *and*
+  the clamp applied to its answer. It must stay in lockstep with `ICON_MAP` in `LetterBanner.tsx`.
 - **Streak math exists twice**: `App.tsx#handleSubmitAnswers` computes a streak for the result object,
   while `storage.ts#recordGameCompletion` independently recomputes the persisted value. Update both.
-- **`judgedBy` is the provenance field.** It is typed in `src/types.ts` and optional there only so
-  rounds persisted before it existed still parse. `ValidationResultCard` shows the "Gemini AI Referee"
-  badge on `=== 'gemini'`; do not weaken that to a truthiness check.
+- **`judgedBy` is the provenance field, and it is persisted.** It is typed in `src/types.ts` and optional
+  only so rounds saved before it existed still parse. Because it lives inside saved rounds in
+  `localStorage`, values from earlier releases arrive forever — `'gemini'` from the Gemini era, and
+  `undefined` from before the field. Use `isAiJudged()` in `src/utils/judge.ts` rather than comparing
+  values inline, and never weaken it to a truthiness check (`undefined !== false` was a real bug that
+  showed the AI badge on heuristic rounds).
 - **Types are centralized** in `src/types.ts` (`CategoryKey`, `DailyPuzzle`, `GameResult`, `GameStats`,
   `JudgedBy`, …). Components define their own local `...Props` interface and are typed `React.FC<Props>`
   with named exports; only `App.tsx` uses a default export.
