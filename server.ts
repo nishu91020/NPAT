@@ -18,6 +18,12 @@ import {
   withBonusFallback,
   type BonusChallengeSource,
 } from './server/bonus';
+import {
+  createAzureClient,
+  describeIncompleteConfig,
+  resolveAzureConfig,
+  type AzureClient,
+} from './server/azure';
 
 // Load environment variables for server runtime.
 dotenv.config({ path: '.env' });
@@ -41,7 +47,29 @@ function createGeminiClient(): GoogleGenAI | null {
   });
 }
 
+/**
+ * Resolves Microsoft Foundry configuration. A partial configuration is fatal:
+ * silently degrading on a typo means paying for AI judging that never happens.
+ */
+function createAzureClientOrExit(): AzureClient | null {
+  const config = resolveAzureConfig(process.env);
+
+  if (config.kind === 'incomplete') {
+    console.error(describeIncompleteConfig(config.missing));
+    process.exit(1);
+  }
+
+  if (config.kind === 'unconfigured') return null;
+
+  return createAzureClient(config);
+}
+
+const azure = createAzureClientOrExit();
 const ai = createGeminiClient();
+
+if (azure) {
+  console.log('Microsoft Foundry configured; judge deployment:', azure.judgeDeployment);
+}
 
 // Gemini judges when configured; the heuristic covers both "no key" and "call failed".
 const judge: Judge = ai ? withFallback(createGeminiJudge(ai), heuristicJudge) : heuristicJudge;
