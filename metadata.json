@@ -1,0 +1,6 @@
+{
+  "name": "Letters Daily - Name Place Animal Thing",
+  "description": "Daily letter word puzzle game with Name, Place, Animal, Thing, bonus challenges, streaks, and shareable result cards.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
