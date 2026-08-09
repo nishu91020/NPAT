@@ -183,7 +183,10 @@ describe('evaluateRound', () => {
       stubJudge(verdict({ name: judgement({ valid: true }) }))
     );
 
-    expect(scored.totalScore).toBe(10 + 20);
+    // Only one of the four is valid, so the round earns its points and no
+    // speed bonus, however fast it was submitted.
+    expect(scored.totalScore).toBe(10);
+    expect(scored.speedBonus).toBe(0);
   });
 
   it('never shows the judge the clock', async () => {
@@ -241,5 +244,57 @@ describe('withFallback', () => {
     });
 
     expect(result.judgedBy).toBe('heuristic');
+  });
+});
+
+/**
+ * The speed bonus rewards answering a round well, quickly — not merely
+ * submitting quickly. Four blank answers used to score 20 points.
+ */
+describe('the speed bonus and a wrong answer', () => {
+  const fast = 15;
+
+  function allWith(overrides: Partial<CategoryJudgement>) {
+    return Object.fromEntries(
+      CATEGORY_KEYS.map((k) => [k, judgement({ valid: true, ...overrides })])
+    ) as Record<CategoryKey, CategoryJudgement>;
+  }
+
+  it('withholds the speed bonus when one answer is wrong', () => {
+    const scored = scoreVerdict(
+      verdict({ ...allWith({}), animal: judgement({ valid: false }) }),
+      fast
+    );
+
+    expect(scored.speedBonus).toBe(0);
+    expect(scored.totalScore).toBe(30);
+  });
+
+  it('gives an empty round nothing at all', () => {
+    const scored = scoreVerdict(
+      verdict(
+        Object.fromEntries(
+          CATEGORY_KEYS.map((k) => [k, judgement({ valid: false })])
+        ) as Record<CategoryKey, CategoryJudgement>
+      ),
+      fast
+    );
+
+    expect(scored.speedBonus).toBe(0);
+    expect(scored.totalScore).toBe(0);
+  });
+
+  it('still rewards four right answers that miss the bonus', () => {
+    const scored = scoreVerdict(verdict(allWith({ bonusMatched: false })), fast);
+
+    expect(scored.speedBonus).toBe(20);
+    expect(scored.totalScore).toBe(10 * 4 + 20);
+  });
+
+  it('rewards a round that is right but slow with nothing extra', () => {
+    const scored = scoreVerdict(verdict(allWith({ bonusMatched: false })), 60);
+
+    expect(scored.speedBonus).toBe(0);
+    expect(scored.totalScore).toBe(40);
   });
 });

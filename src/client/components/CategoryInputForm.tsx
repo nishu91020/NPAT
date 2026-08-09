@@ -37,6 +37,20 @@ export const CategoryInputForm: React.FC<CategoryInputFormProps> = ({
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const targetLetter = puzzle.letter.toUpperCase();
 
+  /**
+   * When the round began, in wall-clock time.
+   *
+   * The elapsed time used to be derived as `timeLimitSeconds - timeLeft`, which
+   * breaks the moment a lost life resets the clock to 15: a player who had
+   * already used the full minute could submit and report 45 seconds, earning a
+   * speed bonus for the slowest possible round.
+   */
+  const startedAtRef = useRef<number>(Date.now());
+
+  function elapsedSeconds(): number {
+    return Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000));
+  }
+
   // Reset timer & fields when puzzle changes
   useEffect(() => {
     setAnswers({ name: '', place: '', animal: '', thing: '' });
@@ -44,6 +58,7 @@ export const CategoryInputForm: React.FC<CategoryInputFormProps> = ({
     setLives(3);
     setTimerActive(true);
     setValidationError(null);
+    startedAtRef.current = Date.now();
   }, [puzzle]);
 
   // Countdown timer effect
@@ -78,8 +93,7 @@ export const CategoryInputForm: React.FC<CategoryInputFormProps> = ({
     } else {
       setLives(0);
       setValidationError('Game Over! Time ran out. Submitting current entries...');
-      const timeTaken = puzzle.timeLimitSeconds - timeLeft;
-      onSubmit(answers, Math.max(timeTaken, 1), 0);
+      onSubmit(answers, elapsedSeconds(), 0);
     }
   };
 
@@ -102,8 +116,7 @@ export const CategoryInputForm: React.FC<CategoryInputFormProps> = ({
     }
 
     setTimerActive(false);
-    const timeTaken = puzzle.timeLimitSeconds - timeLeft;
-    onSubmit(answers, Math.max(timeTaken, 1), lives);
+    onSubmit(answers, elapsedSeconds(), lives);
   };
 
   const getLetterStatus = (val: string) => {

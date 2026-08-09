@@ -80,6 +80,15 @@ the clock — `JudgeRequest` deliberately omits `timeTakenSeconds`. Adapters sat
 `src/server/main.ts` is **Azure → heuristic**. To change how a round scores, edit `SCORING`; to change how
 words are judged, edit an adapter.
 
+⚠️ **The speed bonus requires all four answers to be valid.** It rewards a round answered well *and*
+quickly, so one wrong answer forfeits it entirely — four blanks submitted instantly used to score 20.
+Matching the bonus challenge is **not** required: a right answer that misses the bonus is still right.
+The elapsed time is measured from a round-start timestamp in `CategoryInputForm`, never derived as
+`timeLimitSeconds - timeLeft`, because losing a life resets the clock to 15 and that formula then
+reported 45 seconds for a round that had already run past a minute. Note `/api/validate` reads
+`timeTakenSeconds` and falls back to `DEFAULT_TIME_TAKEN_SECONDS` when it is absent or not a number —
+a request using any other field name is silently scored at the default.
+
 **Strict structured output is why the provider matters.** Azure adapters request
 `response_format: { type: 'json_schema', strict: true }`, which requires `additionalProperties: false` on
 every object and every property in `required`. Strict mode cannot express `maxLength`, so length limits

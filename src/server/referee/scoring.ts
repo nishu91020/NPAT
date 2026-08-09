@@ -86,7 +86,14 @@ export function scoreVerdict(
     categories[key] = { ...judgement, points };
   }
 
-  const speedBonus = speedBonusFor(timeTakenSeconds);
+  // The speed bonus rewards a round answered well and quickly, not merely
+  // submitted quickly: four blanks sent instantly used to score 20. Matching the
+  // bonus challenge is not required — a right answer that misses the bonus is
+  // still a right answer.
+  const speedBonus =
+    validCount === CATEGORY_KEYS.length
+      ? speedBonusFor(timeTakenSeconds)
+      : SCORING.noSpeedBonus;
   const meetsScope = bonusMetFor(challenge?.rule?.scope ?? 'some', matchedKeys);
 
   return {
