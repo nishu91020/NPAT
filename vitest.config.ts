@@ -6,7 +6,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig(({ mode }) => ({
   test: {
     environment: 'node',
-    include: ['server/**/*.test.ts', 'client/**/*.test.ts', 'shared/**/*.test.ts'],
+    include: ['src/**/*.test.ts'],
     // Integration tests need Azurite running; excluded from the default run.
     exclude: mode === 'integration' ? [] : ['**/*.integration.test.ts', '**/node_modules/**'],
     env: {

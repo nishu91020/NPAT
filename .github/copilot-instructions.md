@@ -8,13 +8,13 @@ heuristic judge as the fallback.
 
 ```bash
 npm install
-npm run dev      # tsx server/main.ts — Express + Vite middleware on http://localhost:3000
+npm run dev      # tsx src/server/main.ts — Express + Vite middleware on http://localhost:3000
 npm run lint     # tsc --noEmit
 npm test         # vitest run (unit only; no emulator needed)
 npm run azurite  # start the local blob emulator, needed by test:integration
 npm run test:integration   # includes *.integration.test.ts, requires Azurite
 npm run test:watch
-npm run build    # vite build -> dist/, then esbuild bundles server/main.ts -> dist/server.cjs
+npm run build    # vite build -> dist/, then esbuild bundles src/server/main.ts -> dist/server.cjs
 npm start        # node dist/server.cjs (requires NODE_ENV=production to serve dist/)
 ```
 
@@ -53,29 +53,31 @@ Note that `npm start` still runs the Vite dev middleware unless `NODE_ENV=produc
 
 ## Architecture
 
-**One process, one port.** `server/main.ts` is the entry point for both tiers. In development it imports
+**One process, one port.** `src/server/main.ts` is the entry point for both tiers. In development it imports
 Vite and mounts `vite.middlewares` in `middlewareMode`; in production (`NODE_ENV=production`) it serves
 static `dist/` with an `app.get('*')` SPA fallback. There is no separate Vite dev server and no proxy
 config — that is why the client can `fetch('/api/...')` with relative URLs.
 
-**Three tiers, and the dependency arrows only point inward to `shared/`.**
+**All source lives under `src/`, split into three tiers, and the dependency arrows only point inward to
+`src/shared/`.**
 
-- `shared/` — `contract.ts` holds the wire types both tiers must agree on; `puzzle.ts` holds the daily
-  derivation both tiers run. Must stay isomorphic: no `window`, no `localStorage`, no Node built-ins, and
-  it may not import from `client/` or `server/`.
-- `server/` — server-only. `server/main.ts` is the composition root and the esbuild entry.
-- `client/` — browser-only. Components import wire types from `../../shared/contract`, not from
-  `../types`; `client/types.ts` holds only what never leaves the browser (`GameResult`, `GameStats`,
+- `src/shared/` — `contract.ts` holds the wire types both tiers must agree on; `puzzle.ts` holds the
+  daily derivation both tiers run. Must stay isomorphic: no `window`, no `localStorage`, no Node
+  built-ins, and it may not import from `src/client/` or `src/server/`.
+- `src/server/` — server-only. `src/server/main.ts` is the composition root and the esbuild entry.
+- `src/client/` — browser-only. Components import wire types from `../../shared/contract`, not from
+  `../types`; `src/client/types.ts` holds only what never leaves the browser (`GameResult`, `GameStats`,
   `CategoryInfo`).
 
-**`client/` must never import from `server/`.** That is what keeps the LLM SDK and the prompts out of the
-browser bundle. Anything genuinely common goes in `shared/`, never imported across the tier seam.
+**`src/client/` must never import from `src/server/`.** That is what keeps the LLM SDK and the prompts
+out of the browser bundle. Anything genuinely common goes in `src/shared/`, never imported across the
+tier seam.
 
-**Scoring is server-only and lives in exactly one place.** `server/referee/scoring.ts` owns the `SCORING`
+**Scoring is server-only and lives in exactly one place.** `src/server/referee/scoring.ts` owns the `SCORING`
 constants, the speed ladder, the points mapping, and the totals. Judges never assign points and never see
 the clock — `JudgeRequest` deliberately omits `timeTakenSeconds`. Adapters satisfying the `Judge` seam:
 `createAzureJudge` and `heuristicJudge`, composed by `withFallback`. Selection in
-`server/main.ts` is **Azure → heuristic**. To change how a round scores, edit `SCORING`; to change how
+`src/server/main.ts` is **Azure → heuristic**. To change how a round scores, edit `SCORING`; to change how
 words are judged, edit an adapter.
 
 **Strict structured output is why the provider matters.** Azure adapters request
@@ -118,7 +120,7 @@ are legitimately lower than an AI-judged round. `judgedBy` on the response recor
 output, and this game feeds player-typed words into a prompt. A `content_filter` rejection must never be
 retried and must never fall through to the heuristic, which would launder blocked content into a score.
 Because the filter rejects the whole prompt without saying which answer caused it,
-`server/referee/contentFilter.ts` + `azureJudge.ts` attribute it by submitting each non-empty answer
+`src/server/referee/contentFilter.ts` + `azureJudge.ts` attribute it by submitting each non-empty answer
 alone, then re-judge with the blocked ones blanked. Those probes are **not retries** — each carries
 different content, and a test asserts the original request is never repeated unchanged.
 
@@ -128,8 +130,8 @@ challenge, and derives `dayNumber` from a `2026-01-01` epoch. There is no databa
 the letter list, or the epoch retroactively rewrites every past puzzle — treat those as frozen constants.
 
 **The daily bonus is generated once per date, and shared across replicas.** Two layers, both
-required: `cachedPerDate` in `server/bonus/types.ts` caches the in-flight promise in process, and
-the `DailyChallengeStore` seam (`server/bonus/store.ts`) is the source of truth every replica reads.
+required: `cachedPerDate` in `src/server/bonus/types.ts` caches the in-flight promise in process, and
+the `DailyChallengeStore` seam (`src/server/bonus/store.ts`) is the source of truth every replica reads.
 **The in-process map alone is only correct for a single replica** — without the store, each replica
 generates and serves its own daily challenge, which is a bug this project has already had once. A
 replica publishes with `putIfAbsent`, so the first writer wins and the rest adopt that value rather
@@ -143,26 +145,26 @@ a blob endpoint in Azure, or `UseDevelopmentStorage=true` against Azurite locall
 `App.tsx` shows an error and does **not** record the round, so streak stats cannot be corrupted by a
 guess. The puzzle *fetch* still falls back to `getDailyPuzzleData` so the letter renders offline.
 
-**Telemetry is optional and never load-bearing.** `server/telemetry/` holds a `Telemetry` port with a
+**Telemetry is optional and never load-bearing.** `src/server/telemetry/` holds a `Telemetry` port with a
 no-op adapter, so call sites record unconditionally without null checks, and a `neverThrows` wrapper
 means a telemetry bug cannot fail a player's round. Domain facts ride as attributes on the request
 span the auto-instrumentation already created, landing as `customDimensions` on request telemetry —
 one query answers "which judge ruled", at no extra ingestion cost. See
 `.scratch/azure-deployment/TELEMETRY.md` for the queries.
 
-⚠️ **`server/telemetry/init.ts` must stay the first import in `server/main.ts`.** The OpenTelemetry
+⚠️ **`src/server/telemetry/init.ts` must stay the first import in `src/server/main.ts`.** The OpenTelemetry
 instrumentations patch `http` as they load, so anything imported earlier is never instrumented and
 its telemetry vanishes silently. It also calls `dotenv.config()` itself, because it runs before
-`server/main.ts` reaches its own. Init is wrapped in try/catch: the exporter throws synchronously on a
+`src/server/main.ts` reaches its own. Init is wrapped in try/catch: the exporter throws synchronously on a
 connection string it cannot parse, and unguarded that would crash the server before it listens — a
 typo in one env var taking the whole game down.
 
 **State and persistence.** No router and no state library. All game state lives in `App.tsx` and is passed
-down as props; `client/components/` holds presentational components only. Persistence is `localStorage` via
-`client/storage.ts` under versioned keys `npat_game_stats_v1` / `npat_today_result_v1` — bump the `_v1`
+down as props; `src/client/components/` holds presentational components only. Persistence is `localStorage` via
+`src/client/storage.ts` under versioned keys `npat_game_stats_v1` / `npat_today_result_v1` — bump the `_v1`
 suffix when the stored shape changes, since loaders only shallow-merge over `DEFAULT_STATS`.
 
-**Audio is synthesized, not loaded.** `client/audio.ts` generates every sound with the Web Audio API
+**Audio is synthesized, not loaded.** `src/client/audio.ts` generates every sound with the Web Audio API
 through a lazily-created shared `AudioContext`. There are no audio assets. Every function no-ops when the
 context is unavailable and swallows errors, because browsers block audio before user interaction.
 
@@ -170,8 +172,8 @@ context is unavailable and swallows errors, because browsers block audio before 
 
 - **Every adapter takes an injected client.** `createAzureJudge(client, deployment)` and
   `createAzureBonusSource(client, deployment)` accept a client rather than constructing one — that is
-  what makes them testable. See the fake clients in `server/referee/azureJudge.test.ts` and
-  `server/azure/client.test.ts`. Always throw on a malformed response so `withFallback` engages.
+  what makes them testable. See the fake clients in `src/server/referee/azureJudge.test.ts` and
+  `src/server/azure/client.test.ts`. Always throw on a malformed response so `withFallback` engages.
 - **The `model` argument is the *deployment* name**, not the model name — the single easiest thing to get
   wrong on Azure. Deployment names ride on the `AzureClient` object.
 - **Do not use the SDK's `AzureOpenAI` class.** It requires an `apiVersion` and rewrites requests onto the
@@ -180,7 +182,7 @@ context is unavailable and swallows errors, because browsers block audio before 
   tokens. The scope is `https://ai.azure.com/.default`; the older `cognitiveservices` scope 401s here.
   Both facts are pinned by tests.
 - **Bonus challenge icons are constrained at the source.** `RENDERABLE_ICONS` in
-  `server/bonus/icons.ts` is the list offered to the model *and*
+  `src/server/bonus/icons.ts` is the list offered to the model *and*
   the clamp applied to its answer. It must stay in lockstep with `ICON_MAP` in `LetterBanner.tsx`.
 - **A wrong answer carries a `suggestion`.** The judge returns one example that would have worked;
   the result card renders it as "Try: …". It is `undefined` rather than `''` when absent, and
@@ -188,20 +190,20 @@ context is unavailable and swallows errors, because browsers block audio before 
   letter — a suggestion that would have been rejected is worse than none.
 - **Streak math exists twice**: `App.tsx#handleSubmitAnswers` computes a streak for the result object,
   while `storage.ts#recordGameCompletion` independently recomputes the persisted value. Update both.
-- **`judgedBy` is the provenance field, and it is persisted.** It is typed in `shared/contract.ts` and
+- **`judgedBy` is the provenance field, and it is persisted.** It is typed in `src/shared/contract.ts` and
   optional only so rounds saved before it existed still parse. Because it lives inside saved rounds in
   `localStorage`, values from earlier releases arrive forever — `'gemini'` from the Gemini era, and
-  `undefined` from before the field. Use `isAiJudged()` in `client/judgedBy.ts` rather than comparing
+  `undefined` from before the field. Use `isAiJudged()` in `src/client/judgedBy.ts` rather than comparing
   values inline, and never weaken it to a truthiness check (`undefined !== false` was a real bug that
   showed the AI badge on heuristic rounds).
-- **Types are split by who needs them.** Wire types live in `shared/contract.ts` (`CategoryKey`,
-  `DailyPuzzle`, `ValidationResponse`, `JudgedBy`, …); browser-only shapes live in `client/types.ts`
-  (`GameResult`, `GameStats`, `CategoryInfo`); judge-internal shapes live in `server/referee/types.ts`.
-  Put a new type where its *narrowest* audience is — promoting to `shared/` is what makes it a contract.
+- **Types are split by who needs them.** Wire types live in `src/shared/contract.ts` (`CategoryKey`,
+  `DailyPuzzle`, `ValidationResponse`, `JudgedBy`, …); browser-only shapes live in `src/client/types.ts`
+  (`GameResult`, `GameStats`, `CategoryInfo`); judge-internal shapes live in `src/server/referee/types.ts`.
+  Put a new type where its *narrowest* audience is — promoting to `src/shared/` is what makes it a contract.
   Components define their own local `...Props` interface and are typed `React.FC<Props>`
   with named exports; only `App.tsx` uses a default export.
 - **Tailwind v4, CSS-first.** Wired through the `@tailwindcss/vite` plugin with a single
-  `@import "tailwindcss";` in `client/index.css`. There is no `tailwind.config.js` — do not add one; extend
+  `@import "tailwindcss";` in `src/client/index.css`. There is no `tailwind.config.js` — do not add one; extend
   via CSS. Styling is inline utility classes; there are no CSS modules or styled components.
 - **Design language is deliberately flat and geometric**: square corners (no `rounded-*`), `border-2` /
   `border-l-4` accent rules, hard offset shadows like `shadow-[6px_6px_0px_0px_rgba(0,0,0,0.1)]`,
