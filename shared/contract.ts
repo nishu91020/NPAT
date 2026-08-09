@@ -1,3 +1,12 @@
+/**
+ * The wire contract between the client and the server.
+ *
+ * Everything here crosses the network, so both tiers must agree on it exactly.
+ * Shapes that only ever live in the browser (saved games, UI copy) belong in
+ * `client/types.ts`; shapes that only the server builds belong in
+ * `server/referee/types.ts`.
+ */
+
 export type CategoryKey = 'name' | 'place' | 'animal' | 'thing';
 
 /** Which referee ruled on a round. Absent on rounds stored before this existed. */
@@ -42,36 +51,4 @@ export interface ValidationResponse {
   bonusChallengeMet: boolean;
   overallFeedback: string;
   judgedBy?: JudgedBy;
-}
-
-export interface GameResult {
-  dayNumber: number;
-  dateString: string;
-  letter: string;
-  answers: UserAnswers;
-  validation: ValidationResponse;
-  score: number;
-  streak: number;
-  timeTaken: number;
-  livesRemaining: number;
-  completedAt: string;
-  mode: 'daily' | 'practice';
-}
-
-export interface GameStats {
-  gamesPlayed: number;
-  currentStreak: number;
-  maxStreak: number;
-  totalScore: number;
-  wins: number;
-  lastPlayedDate: string | null;
-  history: Record<string, GameResult>; // key by YYYY-MM-DD or unique key
-}
-
-export interface CategoryInfo {
-  key: CategoryKey;
-  label: string;
-  placeholder: string;
-  iconName: string;
-  example: string;
 }

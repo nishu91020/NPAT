@@ -1,4 +1,4 @@
-import { BonusChallenge, CategoryKey, JudgedBy, UserAnswers } from '../../src/types';
+import { BonusChallenge, CategoryKey, JudgedBy, UserAnswers } from '../../shared/contract';
 
 export type { JudgedBy };
 

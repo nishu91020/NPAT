@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { UserAnswers, DailyPuzzle, CategoryKey } from '../types';
-import { CATEGORIES } from '../utils/puzzleData';
+import { UserAnswers, DailyPuzzle, CategoryKey } from '../../shared/contract';
+import { CATEGORIES } from '../categories';
 import { User, MapPin, Dog, Package, Clock, Heart, Send, Sparkles, Check, AlertCircle, RefreshCw } from 'lucide-react';
-import { playTickSound, playClickSound } from '../utils/audio';
+import { playTickSound, playClickSound } from '../audio';
 
 interface CategoryInputFormProps {
   puzzle: DailyPuzzle;

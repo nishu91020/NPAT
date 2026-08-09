@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BonusChallenge } from '../../src/types';
+import { BonusChallenge } from '../../shared/contract';
 import { deterministicSourceForDate } from './builtinSource';
 import { BonusChallengeSource, cachedPerDate, withBonusFallback } from './types';
 

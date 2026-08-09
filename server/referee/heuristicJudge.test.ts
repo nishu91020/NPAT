@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BonusChallenge, UserAnswers } from '../../src/types';
+import { BonusChallenge, UserAnswers } from '../../shared/contract';
 import { heuristicJudge } from './heuristicJudge';
 
 function challenge(id: string): BonusChallenge {

@@ -1,5 +1,5 @@
-import { BonusChallenge } from '../../src/types';
-import { BONUS_CHALLENGES, getDailyPuzzleData } from '../../src/utils/puzzleData';
+import { BonusChallenge } from '../../shared/contract';
+import { BONUS_CHALLENGES, getDailyPuzzleData } from '../../shared/puzzle';
 import { BonusChallengeSource } from './types';
 
 /** Picks a random built-in challenge. Used for practice rounds. */

@@ -1,6 +1,6 @@
 import React from 'react';
 import { X, HelpCircle, Sparkles, CheckCircle2, Trophy, Clock, Share2 } from 'lucide-react';
-import { playClickSound } from '../utils/audio';
+import { playClickSound } from '../audio';
 
 interface HelpRulesModalProps {
   isOpen: boolean;

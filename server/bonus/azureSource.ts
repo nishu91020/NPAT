@@ -1,5 +1,5 @@
 import type OpenAI from 'openai';
-import { BonusChallenge } from '../../src/types';
+import { BonusChallenge } from '../../shared/contract';
 import { createStructuredCompleter } from '../azure/structuredCompletion';
 import { BonusChallengeSource } from './types';
 import { RENDERABLE_ICONS } from './icons';

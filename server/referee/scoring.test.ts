@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BonusChallenge, CategoryKey } from '../../src/types';
+import { BonusChallenge, CategoryKey } from '../../shared/contract';
 import {
   CATEGORY_KEYS,
   SCORING,

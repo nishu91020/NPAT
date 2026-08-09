@@ -1,7 +1,7 @@
 import React from 'react';
-import { DailyPuzzle } from '../types';
+import { DailyPuzzle } from '../../shared/contract';
 import { Sparkles, RefreshCw, Calendar, Clock, Award, Flag, Utensils, Globe, TreePine, Layers } from 'lucide-react';
-import { playClickSound } from '../utils/audio';
+import { playClickSound } from '../audio';
 
 interface LetterBannerProps {
   puzzle: DailyPuzzle;

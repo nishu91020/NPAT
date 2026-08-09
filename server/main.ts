@@ -1,11 +1,11 @@
 // MUST be first: the OpenTelemetry instrumentations patch `http` when they
 // load, so anything imported before this is never instrumented.
-import { flushTelemetry, telemetryStarted } from './server/telemetry/init';
+import { flushTelemetry, telemetryStarted } from './telemetry/init';
 
 import dotenv from 'dotenv';
 import express from 'express';
 import path from 'path';
-import { getDailyPuzzleData, getRandomPuzzleData } from './src/utils/puzzleData';
+import { getDailyPuzzleData, getRandomPuzzleData } from '../shared/puzzle';
 import {
   createAzureJudge,
   evaluateRound,
@@ -13,7 +13,7 @@ import {
   unscoreableCategories,
   withFallback,
   type Judge,
-} from './server/referee';
+} from './referee';
 import {
   cachedPerDate,
   createAzureBonusSource,
@@ -24,19 +24,19 @@ import {
   withBonusFallback,
   type BonusChallengeSource,
   type DailyChallengeStore,
-} from './server/bonus';
+} from './bonus';
 import {
   createAzureClient,
   describeIncompleteConfig,
   resolveAzureConfig,
   type AzureClient,
-} from './server/azure';
+} from './azure';
 
 import {
   createAzureMonitorTelemetry,
   noopTelemetry,
   type Telemetry,
-} from './server/telemetry';
+} from './telemetry';
 
 // Load environment variables for server runtime.
 dotenv.config({ path: '.env' });

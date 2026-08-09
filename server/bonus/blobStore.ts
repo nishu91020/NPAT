@@ -1,6 +1,6 @@
 import { DefaultAzureCredential } from '@azure/identity';
 import { BlobServiceClient, RestError } from '@azure/storage-blob';
-import { BonusChallenge } from '../../src/types';
+import { BonusChallenge } from '../../shared/contract';
 import { DailyChallengeStore } from './store';
 
 const CONTAINER = 'daily-challenges';

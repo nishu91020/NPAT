@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { DailyPuzzle, UserAnswers, GameResult, GameStats, ValidationResponse } from './types';
-import { getDailyPuzzleData, getRandomPuzzleData } from './utils/puzzleData';
-import { loadGameStats, recordGameCompletion, loadTodayDailyResult } from './utils/storage';
-import { playSuccessSound, playFailureSound, playClickSound } from './utils/audio';
+import { DailyPuzzle, UserAnswers, ValidationResponse } from '../shared/contract';
+import { GameResult, GameStats } from './types';
+import { getDailyPuzzleData, getRandomPuzzleData } from '../shared/puzzle';
+import { loadGameStats, recordGameCompletion, loadTodayDailyResult } from './storage';
+import { playSuccessSound, playFailureSound, playClickSound } from './audio';
 import { Header } from './components/Header';
 import { LetterBanner } from './components/LetterBanner';
 import { CategoryInputForm } from './components/CategoryInputForm';

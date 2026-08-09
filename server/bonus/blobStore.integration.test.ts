@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { BonusChallenge } from '../../src/types';
+import { BonusChallenge } from '../../shared/contract';
 import { createBlobStore } from './blobStore';
 import { DailyChallengeStore } from './store';
 import { BonusChallengeSource, cachedPerDate } from './types';

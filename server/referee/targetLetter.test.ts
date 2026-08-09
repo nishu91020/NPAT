@@ -1,7 +1,8 @@
 import type OpenAI from 'openai';
 import { describe, expect, it, vi } from 'vitest';
-import { BonusChallenge } from '../../src/types';
-import { createAzureJudge, enforceTargetLetter } from './azureJudge';
+import { BonusChallenge } from '../../shared/contract';
+import { createAzureJudge } from './azureJudge';
+import { enforceTargetLetter } from './targetLetter';
 import { JudgeVerdict } from './types';
 
 const bonus: BonusChallenge = {

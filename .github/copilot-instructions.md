@@ -8,13 +8,13 @@ heuristic judge as the fallback.
 
 ```bash
 npm install
-npm run dev      # tsx server.ts — Express + Vite middleware on http://localhost:3000
+npm run dev      # tsx server/main.ts — Express + Vite middleware on http://localhost:3000
 npm run lint     # tsc --noEmit
 npm test         # vitest run (unit only; no emulator needed)
 npm run azurite  # start the local blob emulator, needed by test:integration
 npm run test:integration   # includes *.integration.test.ts, requires Azurite
 npm run test:watch
-npm run build    # vite build -> dist/, then esbuild bundles server.ts -> dist/server.cjs
+npm run build    # vite build -> dist/, then esbuild bundles server/main.ts -> dist/server.cjs
 npm start        # node dist/server.cjs (requires NODE_ENV=production to serve dist/)
 ```
 
@@ -53,22 +53,29 @@ Note that `npm start` still runs the Vite dev middleware unless `NODE_ENV=produc
 
 ## Architecture
 
-**One process, one port.** `server.ts` is the entry point for both tiers. In development it imports Vite
-and mounts `vite.middlewares` in `middlewareMode`; in production (`NODE_ENV=production`) it serves static
-`dist/` with an `app.get('*')` SPA fallback. There is no separate Vite dev server and no proxy config —
-that is why the client can `fetch('/api/...')` with relative URLs.
+**One process, one port.** `server/main.ts` is the entry point for both tiers. In development it imports
+Vite and mounts `vite.middlewares` in `middlewareMode`; in production (`NODE_ENV=production`) it serves
+static `dist/` with an `app.get('*')` SPA fallback. There is no separate Vite dev server and no proxy
+config — that is why the client can `fetch('/api/...')` with relative URLs.
 
-**`src/` is the client, `server/` is server-only.** `server.ts` stays at the repo root as the esbuild
-entry, and imports `server/referee/` and `server/bonus/`. Nothing under `server/` may be imported from
-`src/` — that is what keeps the LLM SDK and the prompts out of the browser bundle. `src/utils/
-puzzleData.ts` is the one genuinely shared module (both tiers call `getDailyPuzzleData`), so keep it
-isomorphic: no `window`, no `localStorage`, no Node built-ins.
+**Three tiers, and the dependency arrows only point inward to `shared/`.**
+
+- `shared/` — `contract.ts` holds the wire types both tiers must agree on; `puzzle.ts` holds the daily
+  derivation both tiers run. Must stay isomorphic: no `window`, no `localStorage`, no Node built-ins, and
+  it may not import from `client/` or `server/`.
+- `server/` — server-only. `server/main.ts` is the composition root and the esbuild entry.
+- `client/` — browser-only. Components import wire types from `../../shared/contract`, not from
+  `../types`; `client/types.ts` holds only what never leaves the browser (`GameResult`, `GameStats`,
+  `CategoryInfo`).
+
+**`client/` must never import from `server/`.** That is what keeps the LLM SDK and the prompts out of the
+browser bundle. Anything genuinely common goes in `shared/`, never imported across the tier seam.
 
 **Scoring is server-only and lives in exactly one place.** `server/referee/scoring.ts` owns the `SCORING`
 constants, the speed ladder, the points mapping, and the totals. Judges never assign points and never see
 the clock — `JudgeRequest` deliberately omits `timeTakenSeconds`. Adapters satisfying the `Judge` seam:
 `createAzureJudge` and `heuristicJudge`, composed by `withFallback`. Selection in
-`server.ts` is **Azure → heuristic**. To change how a round scores, edit `SCORING`; to change how
+`server/main.ts` is **Azure → heuristic**. To change how a round scores, edit `SCORING`; to change how
 words are judged, edit an adapter.
 
 **Strict structured output is why the provider matters.** Azure adapters request
@@ -143,19 +150,19 @@ span the auto-instrumentation already created, landing as `customDimensions` on 
 one query answers "which judge ruled", at no extra ingestion cost. See
 `.scratch/azure-deployment/TELEMETRY.md` for the queries.
 
-⚠️ **`server/telemetry/init.ts` must stay the first import in `server.ts`.** The OpenTelemetry
+⚠️ **`server/telemetry/init.ts` must stay the first import in `server/main.ts`.** The OpenTelemetry
 instrumentations patch `http` as they load, so anything imported earlier is never instrumented and
 its telemetry vanishes silently. It also calls `dotenv.config()` itself, because it runs before
-`server.ts` reaches its own. Init is wrapped in try/catch: the exporter throws synchronously on a
+`server/main.ts` reaches its own. Init is wrapped in try/catch: the exporter throws synchronously on a
 connection string it cannot parse, and unguarded that would crash the server before it listens — a
 typo in one env var taking the whole game down.
 
 **State and persistence.** No router and no state library. All game state lives in `App.tsx` and is passed
-down as props; `src/components/` holds presentational components only. Persistence is `localStorage` via
-`src/utils/storage.ts` under versioned keys `npat_game_stats_v1` / `npat_today_result_v1` — bump the `_v1`
+down as props; `client/components/` holds presentational components only. Persistence is `localStorage` via
+`client/storage.ts` under versioned keys `npat_game_stats_v1` / `npat_today_result_v1` — bump the `_v1`
 suffix when the stored shape changes, since loaders only shallow-merge over `DEFAULT_STATS`.
 
-**Audio is synthesized, not loaded.** `src/utils/audio.ts` generates every sound with the Web Audio API
+**Audio is synthesized, not loaded.** `client/audio.ts` generates every sound with the Web Audio API
 through a lazily-created shared `AudioContext`. There are no audio assets. Every function no-ops when the
 context is unavailable and swallows errors, because browsers block audio before user interaction.
 
@@ -181,17 +188,20 @@ context is unavailable and swallows errors, because browsers block audio before 
   letter — a suggestion that would have been rejected is worse than none.
 - **Streak math exists twice**: `App.tsx#handleSubmitAnswers` computes a streak for the result object,
   while `storage.ts#recordGameCompletion` independently recomputes the persisted value. Update both.
-- **`judgedBy` is the provenance field, and it is persisted.** It is typed in `src/types.ts` and optional
-  only so rounds saved before it existed still parse. Because it lives inside saved rounds in
+- **`judgedBy` is the provenance field, and it is persisted.** It is typed in `shared/contract.ts` and
+  optional only so rounds saved before it existed still parse. Because it lives inside saved rounds in
   `localStorage`, values from earlier releases arrive forever — `'gemini'` from the Gemini era, and
-  `undefined` from before the field. Use `isAiJudged()` in `src/utils/judge.ts` rather than comparing
+  `undefined` from before the field. Use `isAiJudged()` in `client/judgedBy.ts` rather than comparing
   values inline, and never weaken it to a truthiness check (`undefined !== false` was a real bug that
   showed the AI badge on heuristic rounds).
-- **Types are centralized** in `src/types.ts` (`CategoryKey`, `DailyPuzzle`, `GameResult`, `GameStats`,
-  `JudgedBy`, …). Components define their own local `...Props` interface and are typed `React.FC<Props>`
+- **Types are split by who needs them.** Wire types live in `shared/contract.ts` (`CategoryKey`,
+  `DailyPuzzle`, `ValidationResponse`, `JudgedBy`, …); browser-only shapes live in `client/types.ts`
+  (`GameResult`, `GameStats`, `CategoryInfo`); judge-internal shapes live in `server/referee/types.ts`.
+  Put a new type where its *narrowest* audience is — promoting to `shared/` is what makes it a contract.
+  Components define their own local `...Props` interface and are typed `React.FC<Props>`
   with named exports; only `App.tsx` uses a default export.
 - **Tailwind v4, CSS-first.** Wired through the `@tailwindcss/vite` plugin with a single
-  `@import "tailwindcss";` in `src/index.css`. There is no `tailwind.config.js` — do not add one; extend
+  `@import "tailwindcss";` in `client/index.css`. There is no `tailwind.config.js` — do not add one; extend
   via CSS. Styling is inline utility classes; there are no CSS modules or styled components.
 - **Design language is deliberately flat and geometric**: square corners (no `rounded-*`), `border-2` /
   `border-l-4` accent rules, hard offset shadows like `shadow-[6px_6px_0px_0px_rgba(0,0,0,0.1)]`,

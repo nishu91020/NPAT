@@ -1,4 +1,4 @@
-import { GameResult, GameStats } from '../types';
+import { GameResult, GameStats } from './types';
 
 const STATS_KEY = 'npat_game_stats_v1';
 const TODAY_RESULT_KEY = 'npat_today_result_v1';

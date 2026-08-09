@@ -1,6 +1,6 @@
 import type OpenAI from 'openai';
 import { describe, expect, it, vi } from 'vitest';
-import { BonusChallenge } from '../../src/types';
+import { BonusChallenge } from '../../shared/contract';
 import {
   JUDGE_SYSTEM_PROMPT,
   buildUserPrompt,

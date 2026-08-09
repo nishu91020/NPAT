@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isAiJudged } from './judge';
+import { isAiJudged } from './judgedBy';
 
 describe('isAiJudged', () => {
   it('is true for the current AI referee', () => {

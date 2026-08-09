@@ -1,4 +1,4 @@
-import { CategoryKey, JudgedBy } from '../../src/types';
+import { CategoryKey, JudgedBy } from '../../shared/contract';
 
 /** How a daily challenge was obtained, which tells us whether the store is working. */
 export type DailyChallengeOrigin = 'memory' | 'store' | 'generated';

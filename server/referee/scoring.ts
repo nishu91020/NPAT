@@ -1,4 +1,4 @@
-import { CategoryKey } from '../../src/types';
+import { CategoryKey } from '../../shared/contract';
 import {
   CategoryJudgement,
   Judge,

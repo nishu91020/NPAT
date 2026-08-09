@@ -1,4 +1,4 @@
-import { JudgedBy } from '../types';
+import { JudgedBy } from '../shared/contract';
 
 /**
  * Whether a round was ruled on by an AI referee rather than the local

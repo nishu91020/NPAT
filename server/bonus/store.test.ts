@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BonusChallenge } from '../../src/types';
+import { BonusChallenge } from '../../shared/contract';
 import { createMemoryStore, nullStore } from './store';
 import { BonusChallengeSource, cachedPerDate } from './types';
 

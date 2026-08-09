@@ -1,4 +1,4 @@
-import { BonusChallenge } from '../../src/types';
+import { BonusChallenge } from '../../shared/contract';
 import { DailyChallengeOrigin } from '../telemetry/types';
 import { DailyChallengeStore, nullStore } from './store';
 

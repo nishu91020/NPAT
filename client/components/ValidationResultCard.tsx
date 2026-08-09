@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { GameResult } from '../types';
-import { generateShareCard } from '../utils/puzzleData';
-import { isAiJudged } from '../utils/judge';
+import { generateShareCard } from '../shareCard';
+import { isAiJudged } from '../judgedBy';
 import { Trophy, Share2, Copy, Check, Sparkles, RefreshCw, Flame, ArrowRight, User, MapPin, Dog, Package, Award, Lightbulb } from 'lucide-react';
-import { playClickSound, playSuccessSound } from '../utils/audio';
+import { playClickSound, playSuccessSound } from '../audio';
 
 interface ValidationResultCardProps {
   result: GameResult;

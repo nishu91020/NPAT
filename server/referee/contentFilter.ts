@@ -1,4 +1,4 @@
-import { CategoryKey, UserAnswers } from '../../src/types';
+import { CategoryKey, UserAnswers } from '../../shared/contract';
 import { CategoryJudgement, JudgeRequest } from './types';
 
 /**

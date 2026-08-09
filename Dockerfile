@@ -20,7 +20,7 @@ FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
-# esbuild bundles server.ts with --packages=external, so runtime deps are needed.
+# esbuild bundles server/main.ts with --packages=external, so runtime deps are needed.
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./

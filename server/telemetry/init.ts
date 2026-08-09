@@ -8,12 +8,12 @@ import { resolveTelemetryConfig } from './config';
  * **This module must be imported before anything else.** The OpenTelemetry
  * instrumentations patch `http` and `express` when they load, so anything
  * imported earlier is never instrumented and its telemetry is silently lost.
- * `server.ts` imports this on its first line for exactly that reason.
+ * `server/main.ts` imports this on its first line for exactly that reason.
  *
  * Importing it is the side effect; there is nothing to call.
  */
 
-// Loading .env here too, because this module runs before server.ts reaches its
+// Loading .env here too, because this module runs before server/main.ts reaches its
 // own dotenv call — otherwise the connection string is invisible locally.
 // dotenv does not override variables that are already set, so the real
 // environment still wins in Azure.

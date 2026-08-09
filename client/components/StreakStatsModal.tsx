@@ -1,7 +1,7 @@
 import React from 'react';
 import { GameStats, GameResult } from '../types';
 import { X, Flame, Trophy, Target, BarChart2, Calendar, Sparkles } from 'lucide-react';
-import { playClickSound } from '../utils/audio';
+import { playClickSound } from '../audio';
 
 interface StreakStatsModalProps {
   isOpen: boolean;

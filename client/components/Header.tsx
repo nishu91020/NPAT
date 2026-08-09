@@ -1,6 +1,6 @@
 import React from 'react';
 import { Flame, BarChart3, HelpCircle, Volume2, VolumeX, Sparkles, RefreshCw } from 'lucide-react';
-import { playClickSound } from '../utils/audio';
+import { playClickSound } from '../audio';
 
 interface HeaderProps {
   streak: number;
