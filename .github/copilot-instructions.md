@@ -87,22 +87,39 @@ stay as prompt instructions and the parsers stay defensive. The judge schema is 
 defines the category shape once and **inlines it four times** — no `$ref`/`$defs` on the wire, since
 strict-mode support for references is unverified. Tests pin all of this.
 
-**The model is not trusted with anything mechanically decidable.** Two guards sit between the judge
-and the score, both added after live output was observed getting it wrong:
+**The model is not trusted with anything mechanically decidable.** Three guards sit between the judge
+and the score, all added after live output was observed getting it wrong:
 
-- `enforceTargetLetter` in `azureJudge.ts` overrules the model on whether an answer starts with the
+- `enforceTargetLetter` in `targetLetter.ts` overrules the model on whether an answer starts with the
   target letter. A strongly on-theme answer (`Tiger` under an India bonus, for letter S) was seen
-  scoring full marks. Category validity and bonus matching still need world knowledge and stay with
-  the judge.
+  scoring full marks.
+- `enforceBonusRule` in `bonusRule.ts` overrules the model on bonus rules that are properties of the
+  letters. A `BonusChallenge` carries an optional `rule` — `{ scope, checkKind, checkValue }` — and
+  when `checkKind` is anything but `'none'` the game decides the match itself. Asked to apply one
+  identical challenge to one identical set of answers **eight times, the model gave three different
+  verdicts** and scores from 65 to 80. Applied in `evaluateRound`, not inside a judge, so the
+  heuristic fallback is held to the same rule. `checkKind: 'none'` means the rule needs world
+  knowledge — a theme, a famous person, whether something is edible — and stays with the judge.
 - **Field order in the schema is load-bearing.** `bonusEvidence` is generated *before* `bonusMatched`
   so the model reasons before committing; it was otherwise prone to asserting a bonus match its own
   feedback then contradicted. The evidence shapes generation only and is deliberately dropped rather
-  than carried into `JudgeVerdict`. `bonusMatched` is additionally forced false when `valid` is false,
-  and `scoreVerdict` requires the judge *and* the per-category count to agree on `bonusChallengeMet`
-  — a judge may be stricter than the threshold, never looser.
+  than carried into `JudgeVerdict`. `bonusMatched` is additionally forced false when `valid` is false.
+  For a challenge with **no** `rule`, `scoreVerdict` requires the judge *and* the per-category count to
+  agree on `bonusChallengeMet` — a judge may be stricter than the threshold, never looser. For a
+  challenge **carrying** a `rule`, `enforceBonusRule` has already settled `bonusChallengeMet` from the
+  categories and the scope, so that veto no longer applies; over-claiming is still blocked, because
+  both sites derive from the same settled categories.
 
-Both failures were **intermittent**, so a single passing run proves nothing here. Re-run a live check
-several times before believing a prompt change fixed something.
+⚠️ **A bonus rule's `scope` decides what "met" means, and it is not always a count.** `all` needs all
+four answers, `some` needs `SCORING.bonusChallengeThreshold`, and a category key (`name`, `place`,
+`animal`, `thing`) needs only that one. Counting *every* rule against a threshold of two was a real
+bug: four of the seven built-in challenges constrain a single category ("the Thing must be edible"),
+so at most one answer could ever match and they were impossible to complete. `rule` is optional
+because challenges generated before it existed are still served from Blob storage; absent means
+`some`, the historical behaviour.
+
+Both judge failures were **intermittent**, so a single passing run proves nothing here. Re-run a live
+check several times before believing a prompt change fixed something.
 
 **Generated bonus challenges must pass two tests**, encoded in `BONUS_SYSTEM_PROMPT`: *possible*
 (never ask a category to be something it cannot be — no Name is a plant) and *actually extra* (a rule
@@ -167,6 +184,13 @@ suffix when the stored shape changes, since loaders only shallow-merge over `DEF
 **Audio is synthesized, not loaded.** `src/client/audio.ts` generates every sound with the Web Audio API
 through a lazily-created shared `AudioContext`. There are no audio assets. Every function no-ops when the
 context is unavailable and swallows errors, because browsers block audio before user interaction.
+
+⚠️ **Muting belongs to `audio.ts`, not to callers.** `setMuted()` sets a module flag that
+`getAudioContext()` honours, so all four sound functions are gated at the source and `App` only has to
+mirror its `soundEnabled` state into it once. It was previously a prop threaded through components and
+checked at the call site — which meant the two checks that existed worked and the **eighteen**
+`playClickSound()` sites did not, so the mute button silenced the timer tick and the win jingle while
+every button click still beeped. Never reintroduce a `soundEnabled` check around a `play*` call.
 
 ## Conventions and gotchas
 

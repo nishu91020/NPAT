@@ -2,7 +2,22 @@
 
 let audioCtx: AudioContext | null = null;
 
+/**
+ * Muting lives here rather than at the call sites.
+ *
+ * It used to be a `soundEnabled` prop threaded through components, checked in
+ * two places and forgotten in eighteen — so the mute button silenced the timer
+ * tick and the win jingle while every button click still beeped. A gate at the
+ * source cannot be forgotten by a new call site.
+ */
+let muted = false;
+
+export function setMuted(value: boolean): void {
+  muted = value;
+}
+
 function getAudioContext(): AudioContext | null {
+  if (muted) return null;
   if (typeof window === 'undefined') return null;
   if (!audioCtx) {
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;

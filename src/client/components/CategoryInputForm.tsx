@@ -8,7 +8,6 @@ interface CategoryInputFormProps {
   puzzle: DailyPuzzle;
   onSubmit: (answers: UserAnswers, timeTaken: number, remainingLives: number) => void;
   isSubmitting: boolean;
-  soundEnabled: boolean;
 }
 
 const CATEGORY_NUMBERS: Record<CategoryKey, string> = {
@@ -22,7 +21,6 @@ export const CategoryInputForm: React.FC<CategoryInputFormProps> = ({
   puzzle,
   onSubmit,
   isSubmitting,
-  soundEnabled,
 }) => {
   const [answers, setAnswers] = useState<UserAnswers>({
     name: '',
@@ -58,7 +56,7 @@ export const CategoryInputForm: React.FC<CategoryInputFormProps> = ({
       return;
     }
 
-    if (soundEnabled && timeLeft <= 10 && timeLeft > 0) {
+    if (timeLeft <= 10 && timeLeft > 0) {
       playTickSound();
     }
 
@@ -69,7 +67,7 @@ export const CategoryInputForm: React.FC<CategoryInputFormProps> = ({
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [timeLeft, timerActive, isSubmitting, soundEnabled]);
+  }, [timeLeft, timerActive, isSubmitting]);
 
   const handleTimeOut = () => {
     if (lives > 1) {

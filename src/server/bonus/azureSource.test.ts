@@ -9,6 +9,7 @@ import {
   buildBonusUserPrompt,
   createAzureBonusSource,
   pickRuleFamily,
+  toBonusRule,
 } from './azureSource';
 
 const DEPLOYMENT = 'npat-bonus';
@@ -19,6 +20,7 @@ const complete = {
   description: 'At least 2 answers must relate to space.',
   icon: 'Globe',
   ruleHint: 'Space themed.',
+  rule: { scope: 'some', checkKind: 'none', checkValue: '' },
 };
 
 function fakeClient(content: string) {
@@ -214,5 +216,90 @@ describe('failures inherited from the completer', () => {
     await expect(
       createAzureBonusSource(client, DEPLOYMENT).next('S')
     ).rejects.toMatchObject({ harmCategories: ['violence'] });
+  });
+});
+
+/**
+ * The rule is what the referee acts on, so a wrong one silently misjudges every
+ * round it appears in. Degrading to "ask the judge" is the safe direction.
+ */
+describe('toBonusRule', () => {
+  it('keeps a well-formed mechanical rule', () => {
+    expect(toBonusRule({ scope: 'all', checkKind: 'adjacentVowels', checkValue: '' })).toEqual({
+      scope: 'all',
+      checkKind: 'adjacentVowels',
+      checkValue: '',
+    });
+  });
+
+  it('keeps a single-category scope, which is what makes such a challenge winnable', () => {
+    expect(toBonusRule({ scope: 'thing', checkKind: 'none', checkValue: '' }).scope).toBe('thing');
+  });
+
+  it('falls back to a judged rule when the kind is unknown', () => {
+    expect(toBonusRule({ scope: 'all', checkKind: 'rhymesWith', checkValue: 'oon' })).toEqual({
+      scope: 'all',
+      checkKind: 'none',
+      checkValue: '',
+    });
+  });
+
+  it('falls back when a counting rule carries no number', () => {
+    expect(toBonusRule({ scope: 'all', checkKind: 'minLength', checkValue: 'five' }).checkKind).toBe(
+      'none'
+    );
+  });
+
+  it('falls back when endsWith carries no ending', () => {
+    expect(toBonusRule({ scope: 'all', checkKind: 'endsWith', checkValue: '' }).checkKind).toBe(
+      'none'
+    );
+  });
+
+  it('falls back to the historical scope when the scope is unknown', () => {
+    expect(toBonusRule({ scope: 'everyone', checkKind: 'none', checkValue: '' }).scope).toBe('some');
+  });
+
+  it('survives the field being missing entirely', () => {
+    expect(toBonusRule(undefined)).toEqual({ scope: 'some', checkKind: 'none', checkValue: '' });
+  });
+});
+
+/**
+ * Number('') is 0 and finite, so an empty threshold used to survive clamping and
+ * make the bonus free for every answer, for the whole day the challenge is stored.
+ */
+describe('toBonusRule numeric thresholds', () => {
+  it.each(['', '  ', '0', '-2'])('falls back when the threshold is %j', (value) => {
+    expect(toBonusRule({ scope: 'all', checkKind: 'minLength', checkValue: value }).checkKind).toBe(
+      'none'
+    );
+    expect(toBonusRule({ scope: 'all', checkKind: 'minVowels', checkValue: value }).checkKind).toBe(
+      'none'
+    );
+  });
+
+  it('keeps a real threshold', () => {
+    expect(toBonusRule({ scope: 'all', checkKind: 'minLength', checkValue: '5' })).toEqual({
+      scope: 'all',
+      checkKind: 'minLength',
+      checkValue: '5',
+    });
+  });
+});
+
+describe('toBonusRule rejects rules no answer could satisfy', () => {
+  it.each([' ', '   '])('degrades a blank endsWith value (%j)', (value) => {
+    expect(toBonusRule({ scope: 'all', checkKind: 'endsWith', checkValue: value }).checkKind).toBe('none');
+  });
+
+  it('degrades an unreachable threshold', () => {
+    expect(
+      toBonusRule({ scope: 'all', checkKind: 'minLength', checkValue: 'Infinity' }).checkKind
+    ).toBe('none');
+  });
+
+  it('keeps a real ending', () => {
+    expect(toBonusRule({ scope: 'all', checkKind: 'endsWith', checkValue: 'e' }).checkValue).toBe('e');
   });
 });

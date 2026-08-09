@@ -14,6 +14,7 @@ export const BONUS_CHALLENGES: BonusChallenge[] = [
     description: 'All 4 answers must be at least 5 letters long.',
     icon: 'Sparkles',
     ruleHint: 'Words must contain 5+ letters.',
+    rule: { scope: 'all', checkKind: 'minLength', checkValue: '5' },
   },
   {
     id: 'india_focus',
@@ -21,6 +22,7 @@ export const BONUS_CHALLENGES: BonusChallenge[] = [
     description: 'At least 2 answers must have a connection to India or South Asia.',
     icon: 'Flag',
     ruleHint: 'Indian names, places, wildlife or cultural items.',
+    rule: { scope: 'some', checkKind: 'none', checkValue: '' },
   },
   {
     id: 'edible_thing',
@@ -28,6 +30,7 @@ export const BONUS_CHALLENGES: BonusChallenge[] = [
     description: 'The "Thing" must be something edible or drinks/ingredients.',
     icon: 'Utensils',
     ruleHint: 'Thing must be food or drink.',
+    rule: { scope: 'thing', checkKind: 'none', checkValue: '' },
   },
   {
     id: 'world_place',
@@ -35,6 +38,7 @@ export const BONUS_CHALLENGES: BonusChallenge[] = [
     description: 'The "Place" must be a recognized country or capital city.',
     icon: 'Globe',
     ruleHint: 'Country or Capital City for Place.',
+    rule: { scope: 'place', checkKind: 'none', checkValue: '' },
   },
   {
     id: 'wildlife_expert',
@@ -42,6 +46,7 @@ export const BONUS_CHALLENGES: BonusChallenge[] = [
     description: 'The "Animal" must be a wild animal (mammal, bird, or ocean creature).',
     icon: 'TreePine',
     ruleHint: 'Wild mammal, bird, or sea creature.',
+    rule: { scope: 'animal', checkKind: 'none', checkValue: '' },
   },
   {
     id: 'vowel_rich',
@@ -49,6 +54,7 @@ export const BONUS_CHALLENGES: BonusChallenge[] = [
     description: 'Every answer must contain at least 2 vowels (A, E, I, O, U).',
     icon: 'Layers',
     ruleHint: 'At least 2 vowels per word.',
+    rule: { scope: 'all', checkKind: 'minVowels', checkValue: '2' },
   },
   {
     id: 'famous_name',
@@ -56,6 +62,7 @@ export const BONUS_CHALLENGES: BonusChallenge[] = [
     description: 'The "Name" must belong to a well-known historical or famous figure.',
     icon: 'Award',
     ruleHint: 'Famous/Historical person name.',
+    rule: { scope: 'name', checkKind: 'none', checkValue: '' },
   },
 ];
 

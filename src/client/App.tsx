@@ -3,7 +3,7 @@ import { DailyPuzzle, UserAnswers, ValidationResponse } from '../shared/contract
 import { GameResult, GameStats } from './types';
 import { getDailyPuzzleData, getRandomPuzzleData } from '../shared/puzzle';
 import { loadGameStats, recordGameCompletion, loadTodayDailyResult } from './storage';
-import { playSuccessSound, playFailureSound, playClickSound } from './audio';
+import { playSuccessSound, playFailureSound, playClickSound, setMuted } from './audio';
 import { Header } from './components/Header';
 import { LetterBanner } from './components/LetterBanner';
 import { CategoryInputForm } from './components/CategoryInputForm';
@@ -26,6 +26,11 @@ export default function App() {
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
 
   const todayStr = new Date().toISOString().split('T')[0];
+
+  // The audio module owns the gate, so a new call site cannot forget it.
+  useEffect(() => {
+    setMuted(!soundEnabled);
+  }, [soundEnabled]);
 
   // Load Daily puzzle & initial completed state
   useEffect(() => {
@@ -119,12 +124,10 @@ export default function App() {
     setIsSubmitting(false);
 
     // Play victory or try again audio feedback
-    if (soundEnabled) {
-      if (validationRes.totalScore >= 20) {
-        playSuccessSound();
-      } else {
-        playFailureSound();
-      }
+    if (validationRes.totalScore >= 20) {
+      playSuccessSound();
+    } else {
+      playFailureSound();
     }
 
     const currentStats = loadGameStats();
@@ -208,7 +211,6 @@ export default function App() {
               puzzle={puzzle}
               onSubmit={handleSubmitAnswers}
               isSubmitting={isSubmitting}
-              soundEnabled={soundEnabled}
             />
           </>
         )}

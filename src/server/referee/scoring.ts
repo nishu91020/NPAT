@@ -1,4 +1,5 @@
-import { CategoryKey } from '../../shared/contract';
+import { BonusChallenge, BonusScope, CategoryKey } from '../../shared/contract';
+import { enforceBonusRule } from './bonusRule';
 import {
   CategoryJudgement,
   Judge,
@@ -47,14 +48,32 @@ export function defaultOverallFeedback(validCount: number): string {
 }
 
 /**
+ * Whether the challenge as a whole is met, given which categories matched.
+ *
+ * The scope matters because counting every rule against a fixed threshold of two
+ * made single-category challenges impossible: "the Thing must be edible" can
+ * only ever be matched by one answer, so four of the seven built-in challenges
+ * could never be completed however well they were answered.
+ */
+export function bonusMetFor(scope: BonusScope, matched: readonly CategoryKey[]): boolean {
+  if (scope === 'all') return matched.length === CATEGORY_KEYS.length;
+  if (scope === 'some') return matched.length >= SCORING.bonusChallengeThreshold;
+  return matched.includes(scope);
+}
+
+/**
  * Turns a verdict into a scored round. Pure — the entire scoring surface is
  * testable without a judge, a network, or a clock.
  */
-export function scoreVerdict(verdict: JudgeVerdict, timeTakenSeconds: number): RoundEvaluation {
+export function scoreVerdict(
+  verdict: JudgeVerdict,
+  timeTakenSeconds: number,
+  challenge?: BonusChallenge
+): RoundEvaluation {
   const categories = {} as Record<CategoryKey, ScoredCategory>;
   let validCount = 0;
-  let bonusMatches = 0;
   let baseScore = 0;
+  const matchedKeys: CategoryKey[] = [];
 
   for (const key of CATEGORY_KEYS) {
     const judgement = verdict.categories[key];
@@ -62,25 +81,25 @@ export function scoreVerdict(verdict: JudgeVerdict, timeTakenSeconds: number): R
 
     baseScore += points;
     if (judgement.valid) validCount++;
-    if (judgement.bonusMatched) bonusMatches++;
+    if (judgement.bonusMatched) matchedKeys.push(key);
 
     categories[key] = { ...judgement, points };
   }
 
   const speedBonus = speedBonusFor(timeTakenSeconds);
-  const meetsThreshold = bonusMatches >= SCORING.bonusChallengeThreshold;
+  const meetsScope = bonusMetFor(challenge?.rule?.scope ?? 'some', matchedKeys);
 
   return {
     categories,
     totalScore: baseScore + speedBonus,
     speedBonus,
-    // A judge may hold a stricter view than the threshold — a rule reading "all
+    // A judge may hold a stricter view than the rule — a rule reading "all
     // four answers" is not met by two. But it may never claim the challenge was
     // met while its own per-category rulings say otherwise, so both must agree.
     bonusChallengeMet:
       verdict.bonusChallengeMet === undefined
-        ? meetsThreshold
-        : verdict.bonusChallengeMet && meetsThreshold,
+        ? meetsScope
+        : verdict.bonusChallengeMet && meetsScope,
     overallFeedback: verdict.overallFeedback ?? defaultOverallFeedback(validCount),
     judgedBy: verdict.judgedBy,
   };
@@ -97,7 +116,11 @@ export async function evaluateRound(
     bonusChallenge: submission.bonusChallenge,
   });
 
-  return scoreVerdict(verdict, submission.timeTakenSeconds);
+  // Applied here rather than inside a judge, so every judge — including the
+  // fallback — is held to the same rule.
+  const settled = enforceBonusRule(verdict, submission.answers, submission.bonusChallenge);
+
+  return scoreVerdict(settled, submission.timeTakenSeconds, submission.bonusChallenge);
 }
 
 /**
