@@ -1,5 +1,6 @@
 import type OpenAI from 'openai';
 import { BonusChallenge } from '../../src/types';
+import { createStructuredCompleter } from '../azure/structuredCompletion';
 import { BonusChallengeSource } from './types';
 import { RENDERABLE_ICONS } from './icons';
 
@@ -107,29 +108,21 @@ export function createAzureBonusSource(
   client: OpenAI,
   deployment: string
 ): BonusChallengeSource {
+  const completer = createStructuredCompleter(client, deployment);
+
   return {
     async next(letter: string): Promise<BonusChallenge> {
-      const response = await client.chat.completions.create({
-        model: deployment,
+      // Refusals, truncation and filter rejections are named by the completer.
+      // Previously this parsed the raw content itself, so a truncated response
+      // surfaced as a bare JSON syntax error.
+      const parsed = await completer.complete<any>({
+        system: BONUS_SYSTEM_PROMPT,
+        user: buildBonusUserPrompt(letter),
+        schemaName: 'bonus_challenge',
+        schema: buildBonusSchema(),
         temperature: 0.8,
-        messages: [
-          { role: 'system', content: BONUS_SYSTEM_PROMPT },
-          { role: 'user', content: buildBonusUserPrompt(letter) },
-        ],
-        response_format: {
-          type: 'json_schema',
-          json_schema: {
-            name: 'bonus_challenge',
-            strict: true,
-            schema: buildBonusSchema(),
-          },
-        },
       });
 
-      const content = response.choices?.[0]?.message?.content;
-      if (!content) throw new Error('Azure bonus source returned empty content');
-
-      const parsed = JSON.parse(content);
       if (!parsed.title || !parsed.description) {
         throw new Error('Azure bonus source returned an incomplete challenge');
       }

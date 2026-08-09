@@ -1,5 +1,6 @@
 import type OpenAI from 'openai';
 import { describe, expect, it, vi } from 'vitest';
+import { ModelRefusedError, TruncatedCompletionError } from '../azure/structuredCompletion';
 import {
   BONUS_SYSTEM_PROMPT,
   RENDERABLE_ICONS,
@@ -169,5 +170,49 @@ describe('createAzureBonusSource', () => {
     const { client } = fakeClient('not json');
 
     await expect(createAzureBonusSource(client, DEPLOYMENT).next('S')).rejects.toThrow();
+  });
+});
+
+/**
+ * These paths were unhandled before the completer was extracted: this adapter
+ * parsed the raw content itself, so a refusal or a truncated response surfaced
+ * as a bare JSON syntax error with nothing naming the real cause.
+ */
+describe('failures inherited from the completer', () => {
+  it('names a truncated response instead of reporting a syntax error', async () => {
+    const create = vi.fn(async () => ({
+      choices: [{ message: { content: '{"id":"space_twist_S","tit' }, finish_reason: 'length' }],
+    }));
+    const client = { chat: { completions: { create } } } as unknown as OpenAI;
+
+    await expect(createAzureBonusSource(client, DEPLOYMENT).next('S')).rejects.toThrow(
+      TruncatedCompletionError
+    );
+  });
+
+  it('names a refusal instead of reporting empty content', async () => {
+    const create = vi.fn(async () => ({
+      choices: [{ message: { content: null, refusal: 'I cannot help with that' } }],
+    }));
+    const client = { chat: { completions: { create } } } as unknown as OpenAI;
+
+    await expect(createAzureBonusSource(client, DEPLOYMENT).next('S')).rejects.toThrow(
+      ModelRefusedError
+    );
+  });
+
+  it('surfaces a content-filter rejection with its harm categories', async () => {
+    const create = vi.fn(async () => {
+      throw Object.assign(new Error('content_filter'), {
+        status: 400,
+        code: 'content_filter',
+        error: { innererror: { content_filter_result: { violence: { filtered: true } } } },
+      });
+    });
+    const client = { chat: { completions: { create } } } as unknown as OpenAI;
+
+    await expect(
+      createAzureBonusSource(client, DEPLOYMENT).next('S')
+    ).rejects.toMatchObject({ harmCategories: ['violence'] });
   });
 });

@@ -1,11 +1,10 @@
 import type OpenAI from 'openai';
 import { describe, expect, it, vi } from 'vitest';
 import { BonusChallenge } from '../../src/types';
+import { harmCategoriesFrom, isContentFilterRejection } from '../azure/structuredCompletion';
 import { createAzureJudge } from './azureJudge';
 import {
   UNSCOREABLE,
-  harmCategoriesFrom,
-  isContentFilterRejection,
   onlyCategory,
   unscoreableCategories,
   withoutCategories,

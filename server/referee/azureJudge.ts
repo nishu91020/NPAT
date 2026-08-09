@@ -1,15 +1,9 @@
 import type OpenAI from 'openai';
 import { CategoryKey, UserAnswers } from '../../src/types';
+import { ContentFilterError, createStructuredCompleter } from '../azure/structuredCompletion';
 import { CATEGORY_KEYS, SCORING } from './scoring';
 import { CategoryJudgement, Judge, JudgeRequest, JudgeVerdict } from './types';
-import {
-  ContentFilterError,
-  UNSCOREABLE,
-  harmCategoriesFrom,
-  isContentFilterRejection,
-  onlyCategory,
-  withoutCategories,
-} from './contentFilter';
+import { UNSCOREABLE, onlyCategory, withoutCategories } from './contentFilter';
 
 /**
  * One category's shape, defined once here and inlined four times when the schema
@@ -152,8 +146,8 @@ export function enforceTargetLetter(
   };
 }
 
-function parseVerdict(raw: string): JudgeVerdict {
-  const parsed = JSON.parse(raw);
+/** Shapes a parsed response into a verdict. Transport failures are already handled. */
+function toVerdict(parsed: any): JudgeVerdict {
   if (!parsed?.categories) {
     throw new Error('Azure judge returned no categories');
   }
@@ -188,51 +182,21 @@ function parseVerdict(raw: string): JudgeVerdict {
  * parameter expects — not the underlying model name.
  */
 export function createAzureJudge(client: OpenAI, deployment: string): Judge {
+  const completer = createStructuredCompleter(client, deployment);
+
   async function judgeOnce(request: JudgeRequest): Promise<JudgeVerdict> {
-    let response;
-    try {
-      response = await client.chat.completions.create({
-        model: deployment,
-        temperature: 0.2,
-        messages: [
-          { role: 'system', content: JUDGE_SYSTEM_PROMPT },
-          { role: 'user', content: buildUserPrompt(request) },
-        ],
-        response_format: {
-          type: 'json_schema',
-          json_schema: {
-            name: 'round_verdict',
-            strict: true,
-            schema: buildVerdictSchema(),
-          },
-        },
-      });
-    } catch (err) {
-      if (isContentFilterRejection(err)) {
-        throw new ContentFilterError('Request rejected by the content filter', harmCategoriesFrom(err));
-      }
-      throw err;
-    }
+    // Every transport concern — strict-mode wiring, refusals, truncation,
+    // filter rejections, the parse — is handled by the completer. What is left
+    // here is the domain: turning a parsed verdict into a judged round.
+    const parsed = await completer.complete<any>({
+      system: JUDGE_SYSTEM_PROMPT,
+      user: buildUserPrompt(request),
+      schemaName: 'round_verdict',
+      schema: buildVerdictSchema(),
+      temperature: 0.2,
+    });
 
-    const choice = response.choices?.[0];
-    if (!choice) throw new Error('Azure judge returned no choices');
-
-    if (choice.message?.refusal) {
-      throw new Error(`Azure judge refused: ${choice.message.refusal}`);
-    }
-
-    if (choice.finish_reason === 'content_filter') {
-      throw new ContentFilterError('Response rejected by the content filter');
-    }
-
-    if (choice.finish_reason === 'length') {
-      throw new Error('Azure judge response was truncated');
-    }
-
-    const content = choice.message?.content;
-    if (!content) throw new Error('Azure judge returned empty content');
-
-    return enforceTargetLetter(parseVerdict(content), request.letter, request.answers);
+    return enforceTargetLetter(toVerdict(parsed), request.letter, request.answers);
   }
 
   /**
