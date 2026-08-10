@@ -136,14 +136,34 @@ because challenges generated before it existed are still served from Blob storag
 Both judge failures were **intermittent**, so a single passing run proves nothing here. Re-run a live
 check several times before believing a prompt change fixed something.
 
-**Generated bonus challenges must pass two tests**, encoded in `BONUS_SYSTEM_PROMPT`: *possible*
-(never ask a category to be something it cannot be — no Name is a plant) and *actually extra* (a rule
-restating "starts with the target letter" is earned for free by every valid answer). Both were real
-observed failures, the second caused by fixing the first. The second is also enforced in code:
-`restatesTargetLetter` rejects a description that names the letter as a starting condition, and
-throwing there engages `withBonusFallback` rather than serving the dud all day. The prompt alone was
-not enough — it already forbade this when "The Place must be a capital city **starting with S**" was
-generated, smuggling the letter back in as a trailing qualifier.
+**Generated bonus challenges must pass two tests**, encoded in `BONUS_SYSTEM_PROMPT`: *possible* and
+*actually extra* (a rule restating "starts with the target letter" is earned for free by every valid
+answer). Both were real observed failures, the second caused by fixing the first. The second is also
+enforced in code: `restatesTargetLetter` rejects a description that names the letter as a starting
+condition. The prompt alone was not enough — it already forbade this when "The Place must be a
+capital city **starting with S**" was generated, smuggling the letter back in as a trailing qualifier.
+
+⚠️ **"Possible" means possible *for this letter*, and the model must prove it.** A rule is never
+possible in the abstract — only combined with the letter of the day. "Every answer must contain at
+least 3 vowels" is comfortable for A and may have no Animal at all for K, and a category with no
+possible answer can never score the bonus however well the round is played. So the schema asks for an
+`examples` object — a Name, Place, Animal and Thing — and `examplesProveChallenge` checks them:
+every example must start with the target letter, and the rule's own `scope` decides how many must
+satisfy it, via the same `bonusMetFor` the scorer uses. The model supplies the world knowledge (is
+"Stella" a name?) and the game checks the mechanics (does it start with S and carry a double letter?),
+which is the division of labour the referee already uses. Caught live: "two vowels side by side" for K
+was offered with `Kenya`, and "at least 2 vowels" for J with `Jar`. The examples are generated **last**,
+so the model proves the rule it has committed to rather than reverse-engineering a rule to fit, and
+they are deliberately **dropped** rather than carried onto the wire — they are proof, not content, and
+publishing them would spoil the day's puzzle.
+
+**An unfit challenge is retried exactly once, and nothing else is.** `UnfitChallengeError` names the
+one failure worth another attempt: the request was fine and the model simply produced something
+unplayable, so asking again is a fresh roll rather than a retry of a rejected prompt. Roughly one
+generation in twelve is unfit, and falling straight back would spend a whole day on a built-in
+challenge for that. A refusal, a truncation, a transport error or a `content_filter` rejection is
+rethrown untouched — **a filtered prompt must never be repeated** — and a second unfit reply gives up
+to `withBonusFallback` rather than looping.
 
 **Rule variety is engineered, not hoped for.** Rules are drawn from a named `RULE_FAMILIES` entry per
 request, because the model otherwise anchors on whichever example it saw first and returns
