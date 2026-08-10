@@ -18,9 +18,11 @@ import {
   cachedPerDate,
   createAzureBonusSource,
   createBlobStore,
+  createRecentAvoidingPicker,
   deterministicSourceForDate,
   nullStore,
   randomBuiltinSource,
+  ruleFamilyForDate,
   withBonusFallback,
   type BonusChallengeSource,
   type DailyChallengeStore,
@@ -83,9 +85,23 @@ const judge: Judge = azure
   ? withFallback(createAzureJudge(azure.client, azure.judgeDeployment), heuristicJudge)
   : heuristicJudge;
 
-const aiBonusSource: BonusChallengeSource | null = azure
-  ? createAzureBonusSource(azure.client, azure.bonusDeployment)
+/**
+ * Two AI sources, differing only in how each chooses its rule family.
+ *
+ * The daily one rotates by date so no two consecutive days share a family;
+ * practice draws at random but skips whatever it has served recently. Sharing
+ * one source would put both back on an unconstrained random draw.
+ */
+const dailyAiSourceFor = azure
+  ? (dateStr: string) =>
+      createAzureBonusSource(azure.client, azure.bonusDeployment, () => ruleFamilyForDate(dateStr))
   : null;
+
+const practiceAiSource: BonusChallengeSource | null = azure
+  ? createAzureBonusSource(azure.client, azure.bonusDeployment, createRecentAvoidingPicker())
+  : null;
+
+const hasAiBonusSource = Boolean(azure);
 
 /**
  * Shared store for the daily challenge, so every replica serves the same one.
@@ -115,8 +131,8 @@ const telemetry: Telemetry = telemetryStarted ? createAzureMonitorTelemetry() : 
 // challenge as the fallback.
 const dailyBonus = cachedPerDate(
   (dateStr) =>
-    aiBonusSource
-      ? withBonusFallback(aiBonusSource, deterministicSourceForDate(dateStr))
+    dailyAiSourceFor
+      ? withBonusFallback(dailyAiSourceFor(dateStr), deterministicSourceForDate(dateStr))
       : deterministicSourceForDate(dateStr),
   {
     store: dailyChallengeStore,
@@ -124,8 +140,8 @@ const dailyBonus = cachedPerDate(
   }
 );
 
-const practiceBonus: BonusChallengeSource = aiBonusSource
-  ? withBonusFallback(aiBonusSource, randomBuiltinSource)
+const practiceBonus: BonusChallengeSource = practiceAiSource
+  ? withBonusFallback(practiceAiSource, randomBuiltinSource)
   : randomBuiltinSource;
 
 app.get('/api/health', (req, res) => {
@@ -137,7 +153,7 @@ app.get('/api/daily-challenge', async (req, res) => {
   const basePuzzle = getDailyPuzzleData(dateStr);
   const bonusChallenge = await dailyBonus.forDate(dateStr, basePuzzle.letter);
 
-  res.json({ ...basePuzzle, bonusChallenge, isRealtimeBonus: Boolean(aiBonusSource) });
+  res.json({ ...basePuzzle, bonusChallenge, isRealtimeBonus: hasAiBonusSource });
 });
 
 app.get('/api/practice-challenge', async (req, res) => {
@@ -145,7 +161,7 @@ app.get('/api/practice-challenge', async (req, res) => {
   const basePuzzle = getRandomPuzzleData(excludeLetter);
   const bonusChallenge = await practiceBonus.next(basePuzzle.letter);
 
-  res.json({ ...basePuzzle, bonusChallenge, isRealtimeBonus: Boolean(aiBonusSource) });
+  res.json({ ...basePuzzle, bonusChallenge, isRealtimeBonus: hasAiBonusSource });
 });
 
 app.post('/api/generate-bonus', async (req, res) => {

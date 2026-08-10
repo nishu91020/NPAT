@@ -3,4 +3,10 @@ export * from './store';
 export { createBlobStore } from './blobStore';
 export { randomBuiltinSource, deterministicSourceForDate } from './builtinSource';
 export { RENDERABLE_ICONS } from './icons';
-export { createAzureBonusSource } from './azureSource';
+export {
+  createAzureBonusSource,
+  createRecentAvoidingPicker,
+  pickRuleFamily,
+  ruleFamilyForDate,
+  RULE_FAMILIES,
+} from './azureSource';

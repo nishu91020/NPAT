@@ -8,7 +8,9 @@ import {
   buildBonusSchema,
   buildBonusUserPrompt,
   createAzureBonusSource,
+  createRecentAvoidingPicker,
   pickRuleFamily,
+  ruleFamilyForDate,
   toBonusRule,
 } from './azureSource';
 
@@ -84,6 +86,18 @@ describe('prompt split', () => {
     expect(BONUS_SYSTEM_PROMPT).toContain('IS IT ACTUALLY EXTRA');
     expect(BONUS_SYSTEM_PROMPT).toContain('Every answer must start with F');
   });
+
+  it('forbids smuggling the target letter back in as a qualifier', () => {
+    // Observed live: "The Place must be a capital city starting with S", which
+    // passes TEST 2 on its face while re-adding the letter rule at the end.
+    expect(BONUS_SYSTEM_PROMPT).toContain('MUST NOT MENTION THE TARGET LETTER');
+  });
+
+  it('forbids alliterating every title on the target letter', () => {
+    // Twelve live generations for S gave "Stretchy S Words", "Space Seekers",
+    // "Seafood Savor", "Sporty Squad" — the source of the sameness complaint.
+    expect(BONUS_SYSTEM_PROMPT).toContain('NOT ALLITERATION');
+  });
 });
 
 describe('rule families', () => {
@@ -111,6 +125,77 @@ describe('rule families', () => {
       expect(pickRuleFamily(() => r)).toBeDefined();
     }
   });
+
+  it('offers enough distinct families that a month of play does not repeat', () => {
+    // The model writes near-identical rules within a family, so the family
+    // count is the real ceiling on variety, not the number of rounds.
+    expect(new Set(RULE_FAMILIES).size).toBe(RULE_FAMILIES.length);
+    expect(RULE_FAMILIES.length).toBeGreaterThanOrEqual(31);
+  });
+
+  it('names each theme concretely rather than as one broad bucket', () => {
+    const themes = RULE_FAMILIES.filter((f) => f.includes('shared theme'));
+
+    expect(themes.length).toBeGreaterThanOrEqual(10);
+  });
+});
+
+describe('ruleFamilyForDate', () => {
+  const dateOffsetBy = (days: number) =>
+    new Date(Date.UTC(2026, 0, 1) + days * 86_400_000).toISOString().split('T')[0];
+
+  it('is deterministic for a date', () => {
+    expect(ruleFamilyForDate('2026-08-10')).toBe(ruleFamilyForDate('2026-08-10'));
+  });
+
+  it('never repeats a family on consecutive days', () => {
+    for (let day = 0; day < 400; day++) {
+      expect(ruleFamilyForDate(dateOffsetBy(day))).not.toBe(
+        ruleFamilyForDate(dateOffsetBy(day + 1))
+      );
+    }
+  });
+
+  it('walks every family before repeating one', () => {
+    const cycle = Array.from({ length: RULE_FAMILIES.length }, (_, day) =>
+      ruleFamilyForDate(dateOffsetBy(day))
+    );
+
+    expect(new Set(cycle).size).toBe(RULE_FAMILIES.length);
+  });
+
+  it('handles dates before the Unix epoch without indexing off the front', () => {
+    expect(RULE_FAMILIES).toContain(ruleFamilyForDate('1960-03-04'));
+  });
+
+  it('falls back to a random family for an unparseable date', () => {
+    expect(RULE_FAMILIES).toContain(ruleFamilyForDate('practice'));
+  });
+});
+
+describe('createRecentAvoidingPicker', () => {
+  it('does not repeat a recently used family', () => {
+    // Always drawing index 0 of the eligible pool: without the memory this
+    // would return the same family forever.
+    const pick = createRecentAvoidingPicker(5, () => 0);
+    const picks = [pick(), pick(), pick(), pick(), pick()];
+
+    expect(new Set(picks).size).toBe(5);
+  });
+
+  it('keeps producing families once the memory is full', () => {
+    const pick = createRecentAvoidingPicker(3, () => 0);
+
+    for (let i = 0; i < 50; i++) expect(RULE_FAMILIES).toContain(pick());
+  });
+
+  it('never lets the memory swallow the whole pool', () => {
+    const pick = createRecentAvoidingPicker(RULE_FAMILIES.length * 2, () => 0);
+
+    for (let i = 0; i < RULE_FAMILIES.length + 5; i++) {
+      expect(RULE_FAMILIES).toContain(pick());
+    }
+  });
 });
 
 describe('createAzureBonusSource', () => {
@@ -130,6 +215,21 @@ describe('createAzureBonusSource', () => {
     const args = create.mock.calls[0][0] as any;
     expect(args.response_format.json_schema.strict).toBe(true);
     expect(args.temperature).toBe(0.8);
+  });
+
+  it('asks the injected picker for the family, once per generation', async () => {
+    // How variety is achieved is the caller's decision: the daily challenge
+    // rotates by date, practice avoids recent repeats.
+    const { client, create } = fakeClient(JSON.stringify(complete));
+    const pickFamily = vi.fn(() => 'a rule about word length, invented for this test');
+
+    const source = createAzureBonusSource(client, DEPLOYMENT, pickFamily);
+    await source.next('S');
+    await source.next('S');
+
+    expect(pickFamily).toHaveBeenCalledTimes(2);
+    const args = create.mock.calls[0][0] as any;
+    expect(args.messages[1].content).toContain('invented for this test');
   });
 
   it('passes through a well-formed challenge', async () => {
@@ -301,5 +401,33 @@ describe('toBonusRule rejects rules no answer could satisfy', () => {
 
   it('keeps a real ending', () => {
     expect(toBonusRule({ scope: 'all', checkKind: 'endsWith', checkValue: 'e' }).checkValue).toBe('e');
+  });
+
+  it('rescues "ends in a vowel" as its own kind rather than dropping the check', () => {
+    // Observed live: the rule arrived as an endsWith value no word can end with,
+    // so "Vase" missed the bonus under a rule it satisfied.
+    const rule = toBonusRule({ scope: 'thing', checkKind: 'endsWith', checkValue: 'a vowel' });
+
+    expect(rule.checkKind).toBe('endsWithVowel');
+    expect(rule.checkValue).toBe('');
+    expect(rule.scope).toBe('thing');
+  });
+
+  it('accepts the vowel kind and strips the value it takes no use for', () => {
+    expect(
+      toBonusRule({ scope: 'all', checkKind: 'endsWithVowel', checkValue: 'aeiou' })
+    ).toEqual({ scope: 'all', checkKind: 'endsWithVowel', checkValue: '' });
+  });
+
+  it('keeps a list of endings, which the referee reads as alternatives', () => {
+    expect(
+      toBonusRule({ scope: 'all', checkKind: 'endsWith', checkValue: 'ly or ing' }).checkKind
+    ).toBe('endsWith');
+  });
+
+  it('degrades an ending that names no letters at all', () => {
+    expect(
+      toBonusRule({ scope: 'all', checkKind: 'endsWith', checkValue: '!!' }).checkKind
+    ).toBe('none');
   });
 });
