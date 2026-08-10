@@ -3,6 +3,34 @@ import { CATEGORY_KEYS, bonusMetFor } from './scoring';
 import { JudgeVerdict } from './types';
 
 const VOWELS = /[aeiou]/gi;
+const ENDS_IN_VOWEL = /[aeiou]$/i;
+
+/** Splits an ending on the separators a model writes a list of them with. */
+const ALTERNATIVES = /\s*(?:,|\/|\||\bor\b)\s*/i;
+
+/**
+ * The endings an `endsWith` rule will accept.
+ *
+ * A rule is written once as prose and once as a check, and the prose leaks into
+ * the check: "must end in a vowel" arrived as checkValue "a, e, i, o, u", and no
+ * word on earth ends with that string, so "Vase" scored nothing under a rule it
+ * plainly satisfied. Reading the value as a list of alternatives settles that
+ * case exactly — a word ending in any one of them satisfies the rule — without
+ * having to guess what the author meant.
+ */
+export function endingsOf(checkValue: string): string[] {
+  return (checkValue || '')
+    .toLowerCase()
+    .split(ALTERNATIVES)
+    .map((ending) => ending.replace(/["'“”‘’`.]/g, '').trim())
+    .map((ending) => ending.replace(/^(?:the\s+)?letters?\s+/, ''))
+    .filter((ending) => /^[a-z]+$/.test(ending));
+}
+
+/** Whether an ending rule is really the "ends in a vowel" rule, however it was written. */
+function namesAVowel(checkValue: string): boolean {
+  return /vowel/i.test(checkValue || '');
+}
 
 /**
  * Compares a count against a threshold, refusing to decide without a usable one.
@@ -49,12 +77,20 @@ export function satisfiesCheck(rule: BonusRule, rawWord: string): boolean | null
       const pair = named.length === 1 ? named + named : named;
       return word.toLowerCase().includes(pair);
     }
+    case 'endsWithVowel':
+      return ENDS_IN_VOWEL.test(word);
     case 'endsWith': {
+      // "Ends in a vowel" is its own kind, but it reached the store as an
+      // endsWith rule before that kind existed, so it is still read here.
+      if (namesAVowel(rule.checkValue)) return ENDS_IN_VOWEL.test(word);
+
       // Handed back rather than refused: no word ends in a space, so treating a
       // blank ending as a real rule would make the bonus unwinnable all day.
-      const ending = rule.checkValue.trim().toLowerCase();
-      if (!ending) return null;
-      return word.toLowerCase().endsWith(ending);
+      const endings = endingsOf(rule.checkValue);
+      if (endings.length === 0) return null;
+
+      const lower = word.toLowerCase();
+      return endings.some((ending) => lower.endsWith(ending));
     }
     default:
       return null;

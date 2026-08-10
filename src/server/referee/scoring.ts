@@ -1,5 +1,6 @@
 import { BonusChallenge, BonusScope, CategoryKey } from '../../shared/contract';
 import { enforceBonusRule } from './bonusRule';
+import { enforceSuggestions } from './suggestion';
 import {
   CategoryJudgement,
   Judge,
@@ -127,7 +128,16 @@ export async function evaluateRound(
   // fallback — is held to the same rule.
   const settled = enforceBonusRule(verdict, submission.answers, submission.bonusChallenge);
 
-  return scoreVerdict(settled, submission.timeTakenSeconds, submission.bonusChallenge);
+  // Suggestions are settled after the bonus, because whether one stands depends
+  // on the rule the round was actually played under.
+  const advised = enforceSuggestions(
+    settled,
+    submission.letter,
+    submission.bonusChallenge,
+    submission.answers
+  );
+
+  return scoreVerdict(advised, submission.timeTakenSeconds, submission.bonusChallenge);
 }
 
 /**

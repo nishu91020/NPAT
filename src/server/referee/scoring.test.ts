@@ -210,6 +210,31 @@ describe('evaluateRound', () => {
 
     expect(seen).not.toHaveProperty('timeTakenSeconds');
   });
+
+  it('drops a suggestion that would not itself have scored', async () => {
+    // Observed live: under H with a "double hh" rule, a rejected Name was
+    // offered "Rhythm" — wrong letter, no double h, and not a name.
+    const scored = await evaluateRound(
+      {
+        letter: 'H',
+        answers: { name: 'Hhoney', place: 'Hong Kong', animal: '', thing: '' },
+        bonusChallenge: {
+          ...bonus,
+          rule: { scope: 'all', checkKind: 'doubleLetter', checkValue: 'h' },
+        },
+        timeTakenSeconds: 10,
+      },
+      stubJudge(
+        verdict({
+          name: judgement({ valid: false, suggestion: 'Rhythm' }),
+          place: judgement({ valid: false, suggestion: 'Hhampstead' }),
+        })
+      )
+    );
+
+    expect(scored.categories.name.suggestion).toBeUndefined();
+    expect(scored.categories.place.suggestion).toBe('Hhampstead');
+  });
 });
 
 describe('withFallback', () => {

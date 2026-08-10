@@ -2,7 +2,7 @@ import type OpenAI from 'openai';
 import { CategoryKey, UserAnswers } from '../../shared/contract';
 import { ContentFilterError, createStructuredCompleter } from '../azure/structuredCompletion';
 import { CATEGORY_KEYS, SCORING } from './scoring';
-import { enforceTargetLetter } from './targetLetter';
+import { enforceTargetLetter, targetLetterOf, withOnlyMatchingLetters } from './targetLetter';
 import { CategoryJudgement, Judge, JudgeRequest, JudgeVerdict } from './types';
 import { UNSCOREABLE, onlyCategory, withoutCategories } from './contentFilter';
 
@@ -61,20 +61,19 @@ export function buildVerdictSchema() {
  */
 export const JUDGE_SYSTEM_PROMPT = `You are the ultimate fun, fair, and precise AI referee for the classic word puzzle game "Name, Place, Animal, Thing".
 
-RULE 1 OVERRIDES ALL OTHERS. Check it first, for every answer, before you consider anything else.
-An answer that fails rule 1 scores nothing, no matter how good it otherwise is.
+THE FIRST LETTER IS NOT YOURS TO JUDGE. Every answer you receive has already been checked mechanically against the target letter, and any answer that failed that check has been replaced with an empty string before it reached you. So never reject an answer because of the letter it starts with, and never mention the first letter as a reason. If an answer is present, treat it as starting with the target letter, however it looks to you.
 
 For each of the four categories you receive, decide:
-1. Target Letter: does the answer's first letter equal the target letter, ignoring case? Compare the very first character only. If it does not match, or the answer is empty, then valid = false AND bonusMatched = false — even if the word is a perfect fit for the category and the bonus rule. A famous, on-theme answer starting with the wrong letter is still worth nothing.
-2. Category Validity: only if rule 1 passed — is the word a real, recognized item fitting the category?
-   - "Name": genuine human first name or famous character.
+1. Category Validity: is the word a real, recognized item fitting the category?
+   - "Name": genuine human first name, in any language or spelling variant, or a famous character.
    - "Place": real city, country, state, river, mountain, or landmark.
    - "Animal": real animal species, bird, fish, reptile, insect, etc.
    - "Thing": real physical object, item, tool, food, vehicle, element, etc.
-3. bonusEvidence: state in a few words whether this specific answer satisfies the active bonus rule, and why. Write this BEFORE deciding bonusMatched.
-4. bonusMatched: set it to exactly what your bonusEvidence just said. If the evidence says the answer does not satisfy the rule, bonusMatched MUST be false. Never contradict your own evidence. When in doubt, use false. If rule 1 or rule 2 failed, bonusMatched must be false.
-5. feedback: witty and concise, maximum 10 words. It must agree with valid and bonusMatched. When an answer fails rule 1, say so plainly.
-6. suggestion: when valid is false, give ONE example answer that would have worked — a real item in that category starting with the target letter, satisfying the bonus rule if possible. Just the word, nothing else. When valid is true, use an empty string.
+   An empty answer is worth nothing: valid = false and bonusMatched = false.
+2. bonusEvidence: state in a few words whether this specific answer satisfies the active bonus rule, and why. Write this BEFORE deciding bonusMatched.
+3. bonusMatched: set it to exactly what your bonusEvidence just said. If the evidence says the answer does not satisfy the rule, bonusMatched MUST be false. Never contradict your own evidence. When in doubt, use false. If the answer is not valid, bonusMatched must be false.
+4. feedback: witty and concise, maximum 10 words. It must agree with valid and bonusMatched, and must say nothing about the first letter.
+5. suggestion: when valid is false, give ONE example answer that would have worked. It must be a genuine member of that same category, it must start with the target letter, and it must satisfy the active Bonus Challenge rule. All three, or it is no help at all — a suggestion that breaks any of them will be discarded, so use an empty string instead when you cannot think of one. Just the word, nothing else. When valid is true, use an empty string.
 
 Set bonusChallengeMet to true when at least ${SCORING.bonusChallengeThreshold} categories satisfy the bonus rule.
 
@@ -82,16 +81,17 @@ Do not assign points. Scoring is applied separately.`;
 
 /** The per-round data. Everything variable lives here, after the cacheable prefix. */
 export function buildUserPrompt({ letter, answers, bonusChallenge }: JudgeRequest): string {
-  const target = letter.toUpperCase();
+  const target = targetLetterOf(letter);
+  const shown = (key: CategoryKey) => (answers[key] || '').trim();
 
   return `Target letter: "${target}".
 Active Bonus Challenge: "${bonusChallenge?.title || 'Bonus'}: ${bonusChallenge?.description || 'Extra points for valid entries'}".
 
 Answers to evaluate:
-- Name: "${answers.name || ''}"
-- Place: "${answers.place || ''}"
-- Animal: "${answers.animal || ''}"
-- Thing: "${answers.thing || ''}"`;
+- Name: "${shown('name')}"
+- Place: "${shown('place')}"
+- Animal: "${shown('animal')}"
+- Thing: "${shown('thing')}"`;
 }
 
 
@@ -112,7 +112,7 @@ function toVerdict(parsed: any): JudgeVerdict {
       // deliberately not carried into the domain type.
       bonusMatched: Boolean(judged.valid) && Boolean(judged.bonusMatched),
       feedback: judged.feedback || '',
-      suggestion: judged.suggestion || undefined,
+      suggestion: judged.suggestion?.trim() || undefined,
     };
   }
 
@@ -134,12 +134,17 @@ export function createAzureJudge(client: OpenAI, deployment: string): Judge {
   const completer = createStructuredCompleter(client, deployment);
 
   async function judgeOnce(request: JudgeRequest): Promise<JudgeVerdict> {
+    // The letter rule is settled here, not by the model: wrong-letter answers
+    // are withheld from it, and the ruling on them is applied afterwards from
+    // the player's own words. Left to the model, the check failed both ways.
+    const scoreable = withOnlyMatchingLetters(request);
+
     // Every transport concern — strict-mode wiring, refusals, truncation,
     // filter rejections, the parse — is handled by the completer. What is left
     // here is the domain: turning a parsed verdict into a judged round.
     const parsed = await completer.complete<any>({
       system: JUDGE_SYSTEM_PROMPT,
-      user: buildUserPrompt(request),
+      user: buildUserPrompt(scoreable),
       schemaName: 'round_verdict',
       schema: buildVerdictSchema(),
       temperature: 0.2,
@@ -158,12 +163,15 @@ export function createAzureJudge(client: OpenAI, deployment: string): Judge {
    */
   async function attributeRejection(request: JudgeRequest): Promise<Set<CategoryKey>> {
     const blocked = new Set<CategoryKey>();
+    // Wrong-letter answers never reach the model, so they cannot be what it
+    // refused; probing them would only spend a call to learn nothing.
+    const scoreable = withOnlyMatchingLetters(request);
 
     for (const key of CATEGORY_KEYS) {
-      if (!request.answers[key]?.trim()) continue;
+      if (!scoreable.answers[key]?.trim()) continue;
 
       try {
-        await judgeOnce(onlyCategory(request, key));
+        await judgeOnce(onlyCategory(scoreable, key));
       } catch (err) {
         if (err instanceof ContentFilterError) blocked.add(key);
         // Any other failure here is not evidence of filtering; leave it unblocked.

@@ -50,7 +50,8 @@ export type BonusCheckKind =
   | 'minVowels'
   | 'adjacentVowels'
   | 'doubleLetter'
-  | 'endsWith';
+  | 'endsWith'
+  | 'endsWithVowel';
 
 export interface BonusRule {
   scope: BonusScope;

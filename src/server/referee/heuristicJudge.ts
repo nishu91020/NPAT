@@ -1,5 +1,6 @@
 import { BonusChallenge, CategoryKey } from '../../shared/contract';
 import { CATEGORY_KEYS } from './scoring';
+import { startsWithTargetLetter, targetLetterOf } from './targetLetter';
 import { CategoryJudgement, Judge, JudgeRequest, JudgeVerdict } from './types';
 
 /**
@@ -30,7 +31,7 @@ function judgeCategory(
     return { valid: false, bonusMatched: false, feedback: 'No answer provided.' };
   }
 
-  if (word.charAt(0).toUpperCase() !== targetLetter) {
+  if (!startsWithTargetLetter(word, targetLetter)) {
     return {
       valid: false,
       bonusMatched: false,
@@ -60,7 +61,7 @@ function judgeCategory(
 /** Rule-based judge used whenever the AI judge is unavailable. */
 export const heuristicJudge: Judge = {
   async judge({ letter, answers, bonusChallenge }: JudgeRequest): Promise<JudgeVerdict> {
-    const targetLetter = letter.toUpperCase();
+    const targetLetter = targetLetterOf(letter);
     const categories = {} as Record<CategoryKey, CategoryJudgement>;
 
     for (const key of CATEGORY_KEYS) {

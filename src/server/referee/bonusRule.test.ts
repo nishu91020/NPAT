@@ -84,6 +84,45 @@ describe('satisfiesCheck', () => {
     expect(satisfiesCheck(rule, 'Spoon')).toBe(false);
   });
 
+  it('credits a word ending in a vowel', () => {
+    const rule = { scope: 'all', checkKind: 'endsWithVowel', checkValue: '' } as const;
+    expect(satisfiesCheck(rule, 'Vase')).toBe(true);
+    expect(satisfiesCheck(rule, 'Sofa')).toBe(true);
+    expect(satisfiesCheck(rule, 'Spoon')).toBe(false);
+  });
+
+  describe('an ending written as prose is still read as the rule it states', () => {
+    // Observed live: "every answer must end in a vowel" reached the referee as
+    // an endsWith rule, and no word ends with the string "a, e, i, o, u", so
+    // "Vase" scored nothing under a rule it plainly satisfied.
+    it.each(['a vowel', 'vowel', 'a, e, i, o, u', 'a/e/i/o/u', 'a or e or i or o or u'])(
+      'credits "Vase" for an endsWith value of %j',
+      (checkValue) => {
+        expect(satisfiesCheck({ scope: 'all', checkKind: 'endsWith', checkValue }, 'Vase')).toBe(
+          true
+        );
+      }
+    );
+
+    it('still refuses a word that ends in a consonant', () => {
+      const rule = { scope: 'all', checkKind: 'endsWith', checkValue: 'a, e, i, o, u' } as const;
+      expect(satisfiesCheck(rule, 'Spoon')).toBe(false);
+    });
+
+    it('reads a list of endings as alternatives rather than one literal string', () => {
+      const rule = { scope: 'all', checkKind: 'endsWith', checkValue: 'ly or ing' } as const;
+      expect(satisfiesCheck(rule, 'Sailing')).toBe(true);
+      expect(satisfiesCheck(rule, 'Sadly')).toBe(true);
+      expect(satisfiesCheck(rule, 'Spoon')).toBe(false);
+    });
+
+    it('ignores the wrapping a named ending arrives in', () => {
+      const rule = { scope: 'all', checkKind: 'endsWith', checkValue: 'the letter "e"' } as const;
+      expect(satisfiesCheck(rule, 'Snake')).toBe(true);
+      expect(satisfiesCheck(rule, 'Spoon')).toBe(false);
+    });
+  });
+
   it('never credits an empty answer', () => {
     const rule = { scope: 'all', checkKind: 'minVowels', checkValue: '0' } as const;
     expect(satisfiesCheck(rule, '')).toBe(false);

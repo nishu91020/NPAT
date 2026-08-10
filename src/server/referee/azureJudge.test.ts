@@ -128,6 +128,17 @@ describe('prompt split', () => {
     expect(user).not.toContain('You are the ultimate');
   });
 
+  it('does not ask the model to judge the first letter, which is settled in code', () => {
+    expect(JUDGE_SYSTEM_PROMPT).toContain('THE FIRST LETTER IS NOT YOURS TO JUDGE');
+    expect(JUDGE_SYSTEM_PROMPT).not.toContain('does the answer');
+  });
+
+  it('trims the answers, so whitespace is never read as the first character', () => {
+    const user = buildUserPrompt({ ...request, answers: { ...request.answers, name: '  Sarah ' } });
+
+    expect(user).toContain('Name: "Sarah"');
+  });
+
   it('puts the round data in the user message', () => {
     const user = buildUserPrompt(request);
 
