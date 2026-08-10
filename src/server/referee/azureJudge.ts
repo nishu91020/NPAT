@@ -73,7 +73,12 @@ For each of the four categories you receive, decide:
 2. bonusEvidence: state in a few words whether this specific answer satisfies the active bonus rule, and why. Write this BEFORE deciding bonusMatched.
 3. bonusMatched: set it to exactly what your bonusEvidence just said. If the evidence says the answer does not satisfy the rule, bonusMatched MUST be false. Never contradict your own evidence. When in doubt, use false. If the answer is not valid, bonusMatched must be false.
 4. feedback: witty and concise, maximum 10 words. It must agree with valid and bonusMatched, and must say nothing about the first letter.
-5. suggestion: when valid is false, give ONE example answer that would have worked. It must be a genuine member of that same category, it must start with the target letter, and it must satisfy the active Bonus Challenge rule. All three, or it is no help at all — a suggestion that breaks any of them will be discarded, so use an empty string instead when you cannot think of one. Just the word, nothing else. When valid is true, use an empty string.
+5. suggestion: ONE example answer that would have scored better. Give one in BOTH of these cases:
+   - valid is false — the answer was not a real member of the category;
+   - valid is true but bonusMatched is false — the answer was fine, but it missed the Bonus Challenge. This is the case players learn the most from, so do not skip it: show the word that would have earned the bonus.
+   Whichever case it is, the word must satisfy ALL THREE of: a genuine member of that same category, starts with the target letter, and satisfies the active Bonus Challenge rule. A suggestion that breaks any of them will be discarded, so use an empty string rather than a guess. Just the word, nothing else.
+   NEVER invent, misspell or pad a word to make it satisfy the rule. "Samm" is not a name and "Spoonn" is not a thing; a made-up word is a worse answer than the player's own. If no real answer of that category satisfies the rule, use an empty string — saying nothing is always allowed.
+   Use an empty string when valid is true and bonusMatched is true — there is nothing to improve — and when the Bonus Challenge names a different category, since a rule naming one category asks nothing of the other three and no answer here could have earned it.
 
 Set bonusChallengeMet to true when at least ${SCORING.bonusChallengeThreshold} categories satisfy the bonus rule.
 

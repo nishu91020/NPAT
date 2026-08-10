@@ -247,17 +247,25 @@ every button click still beeped. Never reintroduce a `soundEnabled` check around
 - **Bonus challenge icons are constrained at the source.** `RENDERABLE_ICONS` in
   `src/server/bonus/icons.ts` is the list offered to the model *and*
   the clamp applied to its answer. It must stay in lockstep with `ICON_MAP` in `LetterBanner.tsx`.
-- **A wrong answer carries a `suggestion`.** The judge returns one example that would have worked;
-  the result card renders it as "Try: …". It is `undefined` rather than `''` when absent, and
-  `enforceSuggestions` in `suggestion.ts` drops any the game cannot stand behind: a suggestion is the
-  game claiming "this would have worked", so it is held to the same mechanical rules the player's own
-  answer was — the target letter, and the checkable part of the bonus rule. Under letter H with a
+- **A wrong answer carries a `suggestion` — and so does a right one that missed the bonus.** The judge
+  returns one example that would have scored better; the result card renders it as "Try: …" for an
+  invalid answer and "Bonus: …" for a valid one. The second case exists because **the bonus is scored
+  per category** (`validAnswerWithBonus` vs `validAnswer`), so a category that missed it lost points of
+  its own whether or not the round met the challenge overall. `bonusRuleApplies` decides where that
+  advice is honest: a rule naming one category refuses the other three the bonus outright in
+  `enforceBonusRule`, so there is no answer they could have given and they are told nothing.
+  `suggestion` is `undefined` rather than `''` when absent, and `enforceSuggestions` in `suggestion.ts`
+  drops any the game cannot stand behind: a suggestion is the game claiming "this would have worked",
+  so it is held to the target letter and the checkable part of the bonus rule. Under letter H with a
   "must contain `hh`" challenge, a rejected Name was offered `Rhythm`: not a name, not an H, no double
-  H. Whether the word fits its category is world knowledge and stays with the judge. A rule naming one
-  category is not applied to the other three, and — because `some` asks only that
-  `SCORING.bonusChallengeThreshold` answers match — only a `scope` of `all` or the answer's own
-  category can condemn a single word. A suggestion that merely repeats the rejected answer is dropped
-  too.
+  H. A suggestion offered **for the bonus** is held to a higher bar than a mere correction — it must
+  satisfy the rule even under a `some` scope, since earning the bonus is its whole job, whereas a
+  correction failing a `some` rule may simply be one of the answers that never had to match. A
+  suggestion that merely repeats the rejected answer is dropped too.
+  ⚠️ Whether the suggested word is a *real* member of its category stays with the judge — it is world
+  knowledge, not mechanically decidable. Asking harder for bonus-satisfying words pushes on exactly
+  that seam: under a double-letter rule for S, `Sam` was advised as `Samm`. The prompt forbids
+  inventing or padding words, but nothing in code can catch it.
 - **Streak math exists twice**: `App.tsx#handleSubmitAnswers` computes a streak for the result object,
   while `storage.ts#recordGameCompletion` independently recomputes the persisted value. Update both.
 - **`judgedBy` is the provenance field, and it is persisted.** It is typed in `src/shared/contract.ts` and

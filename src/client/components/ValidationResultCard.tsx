@@ -137,11 +137,15 @@ export const ValidationResultCard: React.FC<ValidationResultCardProps> = ({
                   {item.feedback}
                 </p>
 
-                {!item.valid && item.suggestion && (
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mt-2 pt-2 border-t border-slate-200/70 flex items-center gap-1.5">
+                {item.suggestion && (
+                  <p
+                    className={`text-[10px] font-black uppercase tracking-widest mt-2 pt-2 border-t border-slate-200/70 flex items-center gap-1.5 ${
+                      item.valid ? 'text-amber-700' : 'text-slate-500'
+                    }`}
+                  >
                     <Lightbulb className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                     <span>
-                      Try:{' '}
+                      {item.valid ? 'Bonus:' : 'Try:'}{' '}
                       <span className="text-slate-900 font-mono normal-case tracking-normal text-xs">
                         {item.suggestion}
                       </span>

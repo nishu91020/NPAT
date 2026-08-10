@@ -235,6 +235,63 @@ describe('evaluateRound', () => {
     expect(scored.categories.name.suggestion).toBeUndefined();
     expect(scored.categories.place.suggestion).toBe('Hhampstead');
   });
+
+  it('advises a right answer that missed the bonus, and scores it as a miss', async () => {
+    // The bonus is worth SCORING.validAnswerWithBonus - SCORING.validAnswer per
+    // category, so an answer that was right but missed it lost points of its
+    // own and is exactly the case worth teaching.
+    const scored = await evaluateRound(
+      {
+        letter: 'H',
+        answers: { name: 'Harry', place: 'Hhampstead', animal: 'Horse', thing: 'Hat' },
+        bonusChallenge: {
+          ...bonus,
+          rule: { scope: 'all', checkKind: 'doubleLetter', checkValue: 'h' },
+        },
+        timeTakenSeconds: 10,
+      },
+      stubJudge(
+        verdict({
+          name: judgement({ valid: true, suggestion: 'Hhoney' }),
+          place: judgement({ valid: true, suggestion: 'Hhaven' }),
+          animal: judgement({ valid: true, suggestion: 'Hhippo' }),
+          thing: judgement({ valid: true, suggestion: 'Hhammer' }),
+        })
+      )
+    );
+
+    // Hhampstead has the double h, so it needs no advice; the other three do.
+    expect(scored.categories.name.suggestion).toBe('Hhoney');
+    expect(scored.categories.animal.suggestion).toBe('Hhippo');
+    expect(scored.categories.thing.suggestion).toBe('Hhammer');
+    expect(scored.categories.place.suggestion).toBeUndefined();
+
+    expect(scored.categories.place.points).toBe(SCORING.validAnswerWithBonus);
+    expect(scored.categories.name.points).toBe(SCORING.validAnswer);
+  });
+
+  it('offers no bonus advice to a category the rule could never apply to', async () => {
+    const scored = await evaluateRound(
+      {
+        letter: 'H',
+        answers: { name: 'Harry', place: 'Hull', animal: 'Horse', thing: 'Hat' },
+        bonusChallenge: {
+          ...bonus,
+          rule: { scope: 'thing', checkKind: 'doubleLetter', checkValue: 'h' },
+        },
+        timeTakenSeconds: 10,
+      },
+      stubJudge(
+        verdict({
+          name: judgement({ valid: true, suggestion: 'Hhoney' }),
+          thing: judgement({ valid: true, suggestion: 'Hhammer' }),
+        })
+      )
+    );
+
+    expect(scored.categories.name.suggestion).toBeUndefined();
+    expect(scored.categories.thing.suggestion).toBe('Hhammer');
+  });
 });
 
 describe('withFallback', () => {

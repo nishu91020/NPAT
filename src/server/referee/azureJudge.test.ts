@@ -133,6 +133,23 @@ describe('prompt split', () => {
     expect(JUDGE_SYSTEM_PROMPT).not.toContain('does the answer');
   });
 
+  it('asks for a suggestion when a right answer missed the bonus, not only when it is wrong', () => {
+    // A valid answer that misses the bonus still loses points, so it is the case
+    // players learn the most from; the prompt used to demand silence there.
+    expect(JUDGE_SYSTEM_PROMPT).toContain('valid is true but bonusMatched is false');
+    expect(JUDGE_SYSTEM_PROMPT).not.toContain('When valid is true, use an empty string.');
+  });
+
+  it('still asks for silence where no answer could have earned the bonus', () => {
+    expect(JUDGE_SYSTEM_PROMPT).toContain('names a different category');
+  });
+
+  it('forbids inventing a word to satisfy the rule', () => {
+    // Observed live once the prompt started demanding bonus suggestions: a Name
+    // came back as "Samm", padded purely to carry a double letter.
+    expect(JUDGE_SYSTEM_PROMPT).toContain('NEVER invent, misspell or pad');
+  });
+
   it('trims the answers, so whitespace is never read as the first character', () => {
     const user = buildUserPrompt({ ...request, answers: { ...request.answers, name: '  Sarah ' } });
 
