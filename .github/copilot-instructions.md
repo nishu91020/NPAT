@@ -96,12 +96,16 @@ stay as prompt instructions and the parsers stay defensive. The judge schema is 
 defines the category shape once and **inlines it four times** — no `$ref`/`$defs` on the wire, since
 strict-mode support for references is unverified. Tests pin all of this.
 
-**The model is not trusted with anything mechanically decidable.** Three guards sit between the judge
+**The model is not trusted with anything mechanically decidable.** Four guards sit between the judge
 and the score, all added after live output was observed getting it wrong:
 
-- `enforceTargetLetter` in `targetLetter.ts` overrules the model on whether an answer starts with the
-  target letter. A strongly on-theme answer (`Tiger` under an India bonus, for letter S) was seen
-  scoring full marks.
+- **The target letter is settled in code, in both directions.** `withOnlyMatchingLetters` in
+  `targetLetter.ts` blanks every answer that fails the letter check *before* the request reaches the
+  model, and `JUDGE_SYSTEM_PROMPT` tells it the first letter is not its to judge; `enforceTargetLetter`
+  then applies the ruling afterwards from the player's original words. The model got this wrong both
+  ways: `Tiger` scored full marks for the letter S, and `Lizabeth` was failed for the letter L with
+  "first letter mismatch". Withholding the answer is what stops the second, since a judge shown a
+  blank cannot reject a word on letter grounds.
 - `enforceBonusRule` in `bonusRule.ts` overrules the model on bonus rules that are properties of the
   letters. A `BonusChallenge` carries an optional `rule` — `{ scope, checkKind, checkValue }` — and
   when `checkKind` is anything but `'none'` the game decides the match itself. Asked to apply one
@@ -109,6 +113,8 @@ and the score, all added after live output was observed getting it wrong:
   verdicts** and scores from 65 to 80. Applied in `evaluateRound`, not inside a judge, so the
   heuristic fallback is held to the same rule. `checkKind: 'none'` means the rule needs world
   knowledge — a theme, a famous person, whether something is edible — and stays with the judge.
+- `enforceSuggestions` in `suggestion.ts` drops any "Try: …" the game cannot stand behind — see the
+  suggestion note under *Conventions*.
 - **Field order in the schema is load-bearing.** `bonusEvidence` is generated *before* `bonusMatched`
   so the model reasons before committing; it was otherwise prone to asserting a bonus match its own
   feedback then contradicted. The evidence shapes generation only and is deliberately dropped rather
@@ -133,27 +139,51 @@ check several times before believing a prompt change fixed something.
 **Generated bonus challenges must pass two tests**, encoded in `BONUS_SYSTEM_PROMPT`: *possible*
 (never ask a category to be something it cannot be — no Name is a plant) and *actually extra* (a rule
 restating "starts with the target letter" is earned for free by every valid answer). Both were real
-observed failures, the second caused by fixing the first. Rules are drawn from a named
-`RULE_FAMILIES` entry per request, because the model otherwise anchors on whichever example it saw
-first and returns near-identical challenges every round.
+observed failures, the second caused by fixing the first. The second is also enforced in code:
+`restatesTargetLetter` rejects a description that names the letter as a starting condition, and
+throwing there engages `withBonusFallback` rather than serving the dud all day. The prompt alone was
+not enough — it already forbade this when "The Place must be a capital city **starting with S**" was
+generated, smuggling the letter back in as a trailing qualifier.
 
-**The heuristic judge only claims what it can verify.** It awards `long_words` and `vowel_rich` because
-those are checkable from the word alone, and declines the five knowledge-based challenges rather than
-guessing. It is a degraded mode — it runs when no provider is configured or the AI call fails — so scores
-are legitimately lower than an AI-judged round. `judgedBy` on the response records which one ruled.
+**Rule variety is engineered, not hoped for.** Rules are drawn from a named `RULE_FAMILIES` entry per
+request, because the model otherwise anchors on whichever example it saw first and returns
+near-identical challenges every round. The families are numerous and *specific* on purpose: the model
+writes near-identical rules within a family, so the family count — not the number of rounds — is the
+real ceiling on variety, and a broad family like "a shared theme" always came back as "at least 2
+answers must relate to X". How a family is chosen is injected per caller: `ruleFamilyForDate` rotates
+deterministically by date with a stride coprime to the list length, so consecutive days never repeat
+and every family is used before any recurs, while practice uses `createRecentAvoidingPicker`. The
+prompt additionally forbids alliterating the title on the target letter — twelve live generations for
+S gave "Stretchy S Words", "Space Seekers", "Sporty Squad" and read like one challenge.
+
+**The heuristic judge only claims what it can verify.** It awards the challenges that are checkable
+from the word alone — length, vowel count, adjacent vowels, double letters, how a word ends — and
+declines the knowledge-based ones rather than guessing. It is a degraded mode — it runs when no
+provider is configured or the AI call fails — so scores are legitimately lower than an AI-judged
+round. `judgedBy` on the response records which one ruled.
 
 **Content filtering is a first-class failure mode, not an error path.** Azure filters *input* as well as
 output, and this game feeds player-typed words into a prompt. A `content_filter` rejection must never be
 retried and must never fall through to the heuristic, which would launder blocked content into a score.
 Because the filter rejects the whole prompt without saying which answer caused it,
-`src/server/referee/contentFilter.ts` + `azureJudge.ts` attribute it by submitting each non-empty answer
-alone, then re-judge with the blocked ones blanked. Those probes are **not retries** — each carries
-different content, and a test asserts the original request is never repeated unchanged.
+`src/server/referee/contentFilter.ts` + `azureJudge.ts` attribute it by submitting each non-empty
+answer alone — each answer that reached the model, so wrong-letter ones are skipped, having been
+blanked before it saw them — then re-judge with the blocked ones blanked. Those probes are **not
+retries** — each carries different content, and a test asserts the original request is never repeated
+unchanged.
 
 **Puzzle generation is deterministic, not stored.** `getDailyPuzzleData(dateStr)` hashes the `YYYY-MM-DD`
 string to pick a letter from `AVAILABLE_LETTERS` (Q/U/X/Y/Z are deliberately excluded) and a bonus
 challenge, and derives `dayNumber` from a `2026-01-01` epoch. There is no database. Changing the hash,
 the letter list, or the epoch retroactively rewrites every past puzzle — treat those as frozen constants.
+
+⚠️ **`BONUS_CHALLENGES` is part of that frozen set, but only its first `DETERMINISTIC_CHALLENGE_COUNT`
+entries.** The daily derivation indexes that prefix, never the whole array — it was
+`% BONUS_CHALLENGES.length`, which meant appending a single challenge silently rewrote which one every
+past date resolved to. Add challenges by **appending** below the marker in `puzzle.ts`; the extras are
+drawn by practice mode and the random fallback, neither of which has to agree with history. Reordering
+or removing anything in the prefix still rewrites the past. `puzzle.test.ts` pins the prefix, its order,
+and golden letter/challenge/`dayNumber` values for known dates.
 
 **The daily bonus is generated once per date, and shared across replicas.** Two layers, both
 required: `cachedPerDate` in `src/server/bonus/types.ts` caches the in-flight promise in process, and
@@ -219,8 +249,15 @@ every button click still beeped. Never reintroduce a `soundEnabled` check around
   the clamp applied to its answer. It must stay in lockstep with `ICON_MAP` in `LetterBanner.tsx`.
 - **A wrong answer carries a `suggestion`.** The judge returns one example that would have worked;
   the result card renders it as "Try: …". It is `undefined` rather than `''` when absent, and
-  `enforceTargetLetter` keeps a suggestion only when the suggestion itself starts with the target
-  letter — a suggestion that would have been rejected is worse than none.
+  `enforceSuggestions` in `suggestion.ts` drops any the game cannot stand behind: a suggestion is the
+  game claiming "this would have worked", so it is held to the same mechanical rules the player's own
+  answer was — the target letter, and the checkable part of the bonus rule. Under letter H with a
+  "must contain `hh`" challenge, a rejected Name was offered `Rhythm`: not a name, not an H, no double
+  H. Whether the word fits its category is world knowledge and stays with the judge. A rule naming one
+  category is not applied to the other three, and — because `some` asks only that
+  `SCORING.bonusChallengeThreshold` answers match — only a `scope` of `all` or the answer's own
+  category can condemn a single word. A suggestion that merely repeats the rejected answer is dropped
+  too.
 - **Streak math exists twice**: `App.tsx#handleSubmitAnswers` computes a streak for the result object,
   while `storage.ts#recordGameCompletion` independently recomputes the persisted value. Update both.
 - **`judgedBy` is the provenance field, and it is persisted.** It is typed in `src/shared/contract.ts` and

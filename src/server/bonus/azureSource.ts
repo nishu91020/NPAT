@@ -215,6 +215,35 @@ export function pickRuleFamily(random: () => number = Math.random): string {
 }
 
 /**
+ * Whether a description smuggles the letter rule back in.
+ *
+ * Every answer already has to start with the target letter, so a bonus that
+ * says so again is earned for free. The prompt forbids it, but the prompt also
+ * forbade it before and the model still produced "The Place must be a capital
+ * city starting with S" — and unlike a bad rule, this one is decidable here.
+ * Everything else mechanically decidable in this game is settled in code rather
+ * than trusted to the model; this is the same call.
+ *
+ * Only phrasings that tie the letter to the START of a word count. "Every
+ * answer must end with S" is a genuinely different rule, and a description that
+ * merely happens to contain the letter as a word ("A Place in Spain") is not a
+ * claim about first letters at all.
+ */
+export function restatesTargetLetter(description: string, letter: string): boolean {
+  const target = (letter || '').trim().charAt(0);
+  if (!target) return false;
+
+  // "starting with S", "begin with the letter S", "start with an 'S'"
+  const pattern = new RegExp(
+    `\\b(?:start|starts|starting|begin|begins|beginning)\\s+with\\s+` +
+      `(?:(?:a|an|the)\\s+)?(?:letters?\\s+)?["'“”‘’]?${target}(?![a-z])`,
+    'i'
+  );
+
+  return pattern.test(description || '');
+}
+
+/**
  * Step between consecutive days in the daily rotation.
  *
  * Any value coprime with RULE_FAMILIES.length walks the whole list before
@@ -313,6 +342,14 @@ export function createAzureBonusSource(
 
       if (!parsed.title || !parsed.description) {
         throw new Error('Azure bonus source returned an incomplete challenge');
+      }
+
+      // Throwing engages withBonusFallback, so a challenge that restates the
+      // letter rule is replaced rather than served for the whole day.
+      if (restatesTargetLetter(parsed.description, letter)) {
+        throw new Error(
+          `Azure bonus source restated the target letter: "${parsed.description}"`
+        );
       }
 
       // The schema constrains this, but the clamp stays: the UI can only render

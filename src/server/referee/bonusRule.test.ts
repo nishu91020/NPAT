@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BonusChallenge, CategoryKey } from '../../shared/contract';
-import { enforceBonusRule, satisfiesCheck } from './bonusRule';
+import { enforceBonusRule, endingsOf, satisfiesCheck } from './bonusRule';
 import { bonusMetFor } from './scoring';
 import { CategoryJudgement, JudgeVerdict } from './types';
 
@@ -305,5 +305,55 @@ describe('unwinnable rules are handed back rather than enforced', () => {
     expect(
       satisfiesCheck({ scope: 'all', checkKind: 'minLength', checkValue: 'Infinity' }, 'Sam')
     ).toBeNull();
+  });
+});
+
+describe('endingsOf', () => {
+  it('reads a prose list of vowels as the alternatives it names', () => {
+    // "must end in a vowel" arrived as this, and no word ends with the string.
+    expect(endingsOf('a, e, i, o, u')).toEqual(['a', 'e', 'i', 'o', 'u']);
+  });
+
+  it('reads a single ending as itself', () => {
+    expect(endingsOf('e')).toEqual(['e']);
+    expect(endingsOf('ss')).toEqual(['ss']);
+  });
+
+  it('keeps "or" as an ending rather than splitting on it', () => {
+    // Splitting on the word "or" unconditionally turned the ordinary ending
+    // "-or" into an empty list, which downgraded the rule to a judged one.
+    expect(endingsOf('or')).toEqual(['or']);
+  });
+
+  it('keeps "or" inside a list of endings', () => {
+    // Worse than the above: this silently dropped an alternative, so words
+    // ending "-or" were failed under a rule that plainly allowed them.
+    expect(endingsOf('or, er')).toEqual(['or', 'er']);
+  });
+
+  it('still splits where "or" joins two endings', () => {
+    expect(endingsOf('e or a')).toEqual(['e', 'a']);
+    expect(endingsOf('a, e, i, o or u')).toEqual(['a', 'e', 'i', 'o', 'u']);
+  });
+
+  it('strips the quotes and prefixes a model writes an ending with', () => {
+    expect(endingsOf('the letter "s"')).toEqual(['s']);
+  });
+
+  it('hands back nothing for a value that names no ending', () => {
+    expect(endingsOf('')).toEqual([]);
+    expect(endingsOf('   ')).toEqual([]);
+  });
+});
+
+describe('satisfiesCheck and the "or" ending', () => {
+  const rule = { scope: 'all', checkKind: 'endsWith', checkValue: 'or' } as const;
+
+  it('accepts a word ending in "or"', () => {
+    expect(satisfiesCheck(rule, 'Doctor')).toBe(true);
+  });
+
+  it('rejects one that does not', () => {
+    expect(satisfiesCheck(rule, 'Doctrine')).toBe(false);
   });
 });

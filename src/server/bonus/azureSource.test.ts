@@ -10,6 +10,7 @@ import {
   createAzureBonusSource,
   createRecentAvoidingPicker,
   pickRuleFamily,
+  restatesTargetLetter,
   ruleFamilyForDate,
   toBonusRule,
 } from './azureSource';
@@ -429,5 +430,69 @@ describe('toBonusRule rejects rules no answer could satisfy', () => {
     expect(
       toBonusRule({ scope: 'all', checkKind: 'endsWith', checkValue: '!!' }).checkKind
     ).toBe('none');
+  });
+});
+
+describe('restatesTargetLetter', () => {
+  it('catches the qualifier that was observed live', () => {
+    // "The Place must be a capital city starting with S" passes the "actually
+    // extra" test on its face while re-adding the letter rule at the end.
+    expect(restatesTargetLetter('The Place must be a capital city starting with S', 'S')).toBe(
+      true
+    );
+  });
+
+  it('catches the phrasings a model reaches for', () => {
+    for (const description of [
+      'Every answer must start with F',
+      'All answers must begin with the letter S',
+      "Each answer should start with an 'S'",
+      'Answers beginning with S only.',
+    ]) {
+      expect(restatesTargetLetter(description, description.includes('F') ? 'F' : 'S')).toBe(true);
+    }
+  });
+
+  it('leaves a rule about how words END alone', () => {
+    // A genuinely different rule: valid answers do not earn it for free.
+    expect(restatesTargetLetter('Every answer must end with S', 'S')).toBe(false);
+  });
+
+  it('does not fire on a description that merely contains the letter', () => {
+    expect(restatesTargetLetter('The Place must be a capital city.', 'S')).toBe(false);
+    expect(restatesTargetLetter('At least 2 answers must relate to the sea.', 'S')).toBe(false);
+  });
+
+  it('does not fire on a word that merely begins with the letter', () => {
+    // "starting with Spain" is a phrase about a place, not the letter rule.
+    expect(restatesTargetLetter('At least 2 answers must relate to Spain.', 'S')).toBe(false);
+    expect(restatesTargetLetter('A journey starting with Spain counts.', 'S')).toBe(false);
+  });
+
+  it('is inert without a letter', () => {
+    expect(restatesTargetLetter('Every answer must start with S', '')).toBe(false);
+  });
+});
+
+describe('createAzureBonusSource rejects a challenge that restates the letter', () => {
+  it('throws, so withBonusFallback replaces it rather than serving it all day', async () => {
+    const { client } = fakeClient(
+      JSON.stringify({
+        ...complete,
+        description: 'The Place must be a capital city starting with S.',
+      })
+    );
+
+    await expect(createAzureBonusSource(client, DEPLOYMENT).next('S')).rejects.toThrow(
+      /restated the target letter/
+    );
+  });
+
+  it('passes a compliant challenge through', async () => {
+    const { client } = fakeClient(JSON.stringify(complete));
+
+    await expect(createAzureBonusSource(client, DEPLOYMENT).next('S')).resolves.toMatchObject({
+      description: complete.description,
+    });
   });
 });

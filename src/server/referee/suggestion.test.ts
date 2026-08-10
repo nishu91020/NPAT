@@ -23,6 +23,12 @@ const unknowable: BonusChallenge = {
   rule: { scope: 'all', checkKind: 'none', checkValue: '' },
 };
 
+/** Only 2 of 4 answers need to match, so no single word can be condemned by it. */
+const someOnly: BonusChallenge = {
+  ...doubleH,
+  rule: { scope: 'some', checkKind: 'doubleLetter', checkValue: 'h' },
+};
+
 function rejected(suggestion?: string): CategoryJudgement {
   return { valid: false, bonusMatched: false, feedback: 'Nope.', suggestion };
 }
@@ -55,6 +61,17 @@ describe('suggestionStands', () => {
 
   it('rejects one that satisfies the rule but starts with another letter', () => {
     expect(suggestionStands('Ashhold', 'name', 'H', doubleH)).toBe(false);
+  });
+
+  it('does not hold a suggestion to a "some" rule it was never required to meet', () => {
+    // scope "some" asks only that SCORING.bonusChallengeThreshold answers match,
+    // so a suggestion failing the check may be one of the two that never had to.
+    // Holding it to an "all"-strength check silently dropped good suggestions.
+    expect(suggestionStands('Harry', 'name', 'H', someOnly)).toBe(true);
+  });
+
+  it('still holds a suggestion to a rule every answer must satisfy', () => {
+    expect(suggestionStands('Harry', 'name', 'H', doubleH)).toBe(false);
   });
 
   it('rejects a blank or missing suggestion', () => {

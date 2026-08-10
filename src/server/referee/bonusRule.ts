@@ -5,8 +5,10 @@ import { JudgeVerdict } from './types';
 const VOWELS = /[aeiou]/gi;
 const ENDS_IN_VOWEL = /[aeiou]$/i;
 
-/** Splits an ending on the separators a model writes a list of them with. */
-const ALTERNATIVES = /\s*(?:,|\/|\||\bor\b)\s*/i;
+/** Separators a model writes a genuine list of endings with. */
+const LIST_SEPARATORS = /\s*[,/|]\s*/;
+/** "or" joining two endings — only a separator when it is not the ending itself. */
+const OR_SEPARATOR = /\s*\bor\b\s*/i;
 
 /**
  * The endings an `endsWith` rule will accept.
@@ -17,11 +19,17 @@ const ALTERNATIVES = /\s*(?:,|\/|\||\bor\b)\s*/i;
  * plainly satisfied. Reading the value as a list of alternatives settles that
  * case exactly — a word ending in any one of them satisfies the rule — without
  * having to guess what the author meant.
+ *
+ * "or" is split on only where it joins two endings, never where it IS one:
+ * splitting it unconditionally turned the perfectly ordinary ending "-or" into
+ * an empty list, which downgraded the rule to a judged one, and turned the list
+ * "or, er" into just "er" — silently failing every word the rule allowed.
  */
 export function endingsOf(checkValue: string): string[] {
   return (checkValue || '')
     .toLowerCase()
-    .split(ALTERNATIVES)
+    .split(LIST_SEPARATORS)
+    .flatMap((part) => (part.trim() === 'or' ? [part] : part.split(OR_SEPARATOR)))
     .map((ending) => ending.replace(/["'“”‘’`.]/g, '').trim())
     .map((ending) => ending.replace(/^(?:the\s+)?letters?\s+/, ''))
     .filter((ending) => /^[a-z]+$/.test(ending));

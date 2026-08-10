@@ -27,10 +27,11 @@ export function suggestionStands(
   const rule = challenge?.rule;
   if (!rule) return true;
 
-  // A rule naming one category asks nothing of the other three, so a suggestion
-  // for them must not be judged against it.
-  const scopedToOne = rule.scope !== 'all' && rule.scope !== 'some';
-  if (scopedToOne && rule.scope !== key) return true;
+  // Only a rule every answer must satisfy can condemn a single word. A rule
+  // naming one category asks nothing of the other three, and a "some" rule asks
+  // only that SCORING.bonusChallengeThreshold answers match — so a suggestion
+  // failing it may still be one of the answers that was never required to.
+  if (rule.scope !== 'all' && rule.scope !== key) return true;
 
   // null means only a judge could say; that is not evidence against the word.
   return satisfiesCheck(rule, word) !== false;
