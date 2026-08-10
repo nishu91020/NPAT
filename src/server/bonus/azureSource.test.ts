@@ -1,6 +1,10 @@
 import type OpenAI from 'openai';
 import { describe, expect, it, vi } from 'vitest';
-import { ModelRefusedError, TruncatedCompletionError } from '../azure/structuredCompletion';
+import {
+  ContentFilterError,
+  ModelRefusedError,
+  TruncatedCompletionError,
+} from '../azure/structuredCompletion';
 import {
   BONUS_SYSTEM_PROMPT,
   RENDERABLE_ICONS,
@@ -9,6 +13,7 @@ import {
   buildBonusUserPrompt,
   createAzureBonusSource,
   createRecentAvoidingPicker,
+  examplesProveChallenge,
   pickRuleFamily,
   restatesTargetLetter,
   ruleFamilyForDate,
@@ -24,6 +29,7 @@ const complete = {
   icon: 'Globe',
   ruleHint: 'Space themed.',
   rule: { scope: 'some', checkKind: 'none', checkValue: '' },
+  examples: { name: 'Sally', place: 'Saturn', animal: 'Shark', thing: 'Satellite' },
 };
 
 function fakeClient(content: string) {
@@ -235,8 +241,19 @@ describe('createAzureBonusSource', () => {
 
   it('passes through a well-formed challenge', async () => {
     const { client } = fakeClient(JSON.stringify(complete));
+    const { examples, ...onTheWire } = complete;
 
-    await expect(createAzureBonusSource(client, DEPLOYMENT).next('S')).resolves.toEqual(complete);
+    await expect(createAzureBonusSource(client, DEPLOYMENT).next('S')).resolves.toEqual(onTheWire);
+  });
+
+  it('drops the examples rather than carrying them onto the wire', async () => {
+    // They are the model's proof that the rule is playable, not part of the
+    // challenge — and publishing them to every player would be a spoiler.
+    const { client } = fakeClient(JSON.stringify(complete));
+
+    const challenge = await createAzureBonusSource(client, DEPLOYMENT).next('S');
+
+    expect(challenge).not.toHaveProperty('examples');
   });
 
   it('clamps an unrenderable icon to Sparkles', async () => {
@@ -494,5 +511,202 @@ describe('createAzureBonusSource rejects a challenge that restates the letter', 
     await expect(createAzureBonusSource(client, DEPLOYMENT).next('S')).resolves.toMatchObject({
       description: complete.description,
     });
+  });
+});
+
+describe('examplesProveChallenge', () => {
+  const four = { name: 'Stella', place: 'Sassari', animal: 'Squirrel', thing: 'Scissors' };
+
+  it('accepts examples that all start with the letter and satisfy an "all" rule', () => {
+    // Every one of these carries a double letter.
+    const rule = { scope: 'all', checkKind: 'doubleLetter', checkValue: '' } as const;
+
+    expect(examplesProveChallenge(four, 'S', rule)).toBe(true);
+  });
+
+  it('rejects an "all" rule the model cannot demonstrate for every category', () => {
+    // The exact failure this exists for: a rule with no possible Animal for
+    // this letter is unplayable, however good it looks in the abstract.
+    const rule = { scope: 'all', checkKind: 'doubleLetter', checkValue: '' } as const;
+
+    expect(examplesProveChallenge({ ...four, animal: 'Shark' }, 'S', rule)).toBe(false);
+  });
+
+  it('rejects a threshold no real word reaches for this letter', () => {
+    // "Every answer must have 3 vowels" — plausible in the abstract, and the
+    // model's own Thing does not manage it.
+    const rule = { scope: 'all', checkKind: 'minVowels', checkValue: '3' } as const;
+
+    expect(examplesProveChallenge(four, 'S', rule)).toBe(false);
+    expect(
+      examplesProveChallenge(
+        { name: 'Sofia', place: 'Slovenia', animal: 'Salamander', thing: 'Sunflower' },
+        'S',
+        rule
+      )
+    ).toBe(true);
+  });
+
+  it('asks only the named category to satisfy a scoped rule', () => {
+    const rule = { scope: 'thing', checkKind: 'doubleLetter', checkValue: '' } as const;
+
+    // Only Scissors has to carry the double letter.
+    expect(
+      examplesProveChallenge({ ...four, name: 'Sam', animal: 'Shark' }, 'S', rule)
+    ).toBe(true);
+    // ...and when it does not, the rule is not demonstrated.
+    expect(examplesProveChallenge({ ...four, thing: 'Sword' }, 'S', rule)).toBe(false);
+  });
+
+  it('needs only bonusChallengeThreshold examples for a "some" rule', () => {
+    const rule = { scope: 'some', checkKind: 'doubleLetter', checkValue: '' } as const;
+
+    expect(
+      examplesProveChallenge({ ...four, animal: 'Shark', thing: 'Sword' }, 'S', rule)
+    ).toBe(true);
+    expect(
+      examplesProveChallenge(
+        { name: 'Sam', place: 'Spain', animal: 'Shark', thing: 'Sword' },
+        'S',
+        rule
+      )
+    ).toBe(false);
+  });
+
+  it('refuses an example that does not start with the target letter', () => {
+    // A word that is not a legal answer proves nothing about the rule.
+    const rule = { scope: 'some', checkKind: 'none', checkValue: '' } as const;
+
+    expect(examplesProveChallenge({ ...four, animal: 'Tiger' }, 'S', rule)).toBe(false);
+  });
+
+  it('refuses a missing, blank or non-string example', () => {
+    const rule = { scope: 'some', checkKind: 'none', checkValue: '' } as const;
+
+    expect(examplesProveChallenge(undefined, 'S', rule)).toBe(false);
+    expect(examplesProveChallenge({}, 'S', rule)).toBe(false);
+    expect(examplesProveChallenge({ ...four, thing: '  ' }, 'S', rule)).toBe(false);
+    expect(examplesProveChallenge({ ...four, thing: 42 }, 'S', rule)).toBe(false);
+  });
+
+  it('accepts a rule only a judge could check, once the letters are right', () => {
+    // "Relates to the sea" is world knowledge; the letter is all we can verify.
+    const rule = { scope: 'all', checkKind: 'none', checkValue: '' } as const;
+
+    expect(examplesProveChallenge(four, 'S', rule)).toBe(true);
+  });
+});
+
+describe('createAzureBonusSource rejects an undemonstrated challenge', () => {
+  const impossible = {
+    ...complete,
+    description: 'Every answer must contain at least 3 vowels.',
+    rule: { scope: 'all', checkKind: 'minVowels', checkValue: '3' },
+    examples: { name: 'Sam', place: 'Spain', animal: 'Shark', thing: 'Spoon' },
+  };
+
+  it('throws when the model cannot demonstrate its own rule', async () => {
+    const { client } = fakeClient(JSON.stringify(impossible));
+
+    await expect(createAzureBonusSource(client, DEPLOYMENT).next('S')).rejects.toThrow(
+      /could not demonstrate/
+    );
+  });
+
+  it('checks the examples against the clamped rule, not the raw one', async () => {
+    // toBonusRule downgrades an unusable ending to a judged rule, so the proof
+    // must be measured against the rule the round will actually be scored under.
+    const { client } = fakeClient(
+      JSON.stringify({
+        ...complete,
+        rule: { scope: 'all', checkKind: 'endsWith', checkValue: '' },
+        examples: { name: 'Sam', place: 'Spain', animal: 'Shark', thing: 'Spoon' },
+      })
+    );
+
+    await expect(createAzureBonusSource(client, DEPLOYMENT).next('S')).resolves.toMatchObject({
+      rule: { scope: 'all', checkKind: 'none', checkValue: '' },
+    });
+  });
+});
+
+
+describe('one replacement attempt for an unplayable challenge', () => {
+  const undemonstrated = {
+    ...complete,
+    description: 'Every answer must contain two vowels side by side.',
+    rule: { scope: 'all', checkKind: 'adjacentVowels', checkValue: '' },
+    // Observed live for the letter K: Kenya has no two vowels together, so the
+    // model never demonstrated the rule it had just written.
+    examples: { name: 'Keenan', place: 'Kenya', animal: 'Koala', thing: 'Kookaburra' },
+  };
+
+  /** Answers with each content in turn, so a retry can be given a better reply. */
+  function replyingInTurn(...contents: string[]) {
+    const create = vi.fn(async (_args: any) => ({
+      choices: [
+        { message: { content: contents.shift() ?? contents[0] }, finish_reason: 'stop' },
+      ],
+    }));
+    return { client: { chat: { completions: { create } } } as unknown as OpenAI, create };
+  }
+
+  it('asks again when the first challenge cannot be demonstrated', async () => {
+    const { client, create } = replyingInTurn(
+      JSON.stringify(undemonstrated),
+      JSON.stringify(complete)
+    );
+
+    const challenge = await createAzureBonusSource(client, DEPLOYMENT).next('S');
+
+    expect(challenge.description).toBe(complete.description);
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it('asks again when the first challenge restates the target letter', async () => {
+    const { client, create } = replyingInTurn(
+      JSON.stringify({ ...complete, description: 'The Place must be a capital starting with S.' }),
+      JSON.stringify(complete)
+    );
+
+    await createAzureBonusSource(client, DEPLOYMENT).next('S');
+
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it('gives up after one replacement, so a bad day falls back rather than loops', async () => {
+    const { client, create } = replyingInTurn(
+      JSON.stringify(undemonstrated),
+      JSON.stringify(undemonstrated)
+    );
+
+    await expect(createAzureBonusSource(client, DEPLOYMENT).next('S')).rejects.toThrow(
+      /could not demonstrate/
+    );
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it('never asks again after a content filter rejection', async () => {
+    // A filtered prompt must never be repeated; only the game's own verdict on
+    // a well-formed reply earns another attempt.
+    const create = vi.fn(async () => {
+      throw new ContentFilterError('blocked');
+    });
+    const client = { chat: { completions: { create } } } as unknown as OpenAI;
+
+    await expect(createAzureBonusSource(client, DEPLOYMENT).next('S')).rejects.toBeInstanceOf(
+      ContentFilterError
+    );
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it('never asks again after a refusal', async () => {
+    const create = vi.fn(async () => ({
+      choices: [{ message: { refusal: 'no' }, finish_reason: 'stop' }],
+    }));
+    const client = { chat: { completions: { create } } } as unknown as OpenAI;
+
+    await expect(createAzureBonusSource(client, DEPLOYMENT).next('S')).rejects.toThrow();
+    expect(create).toHaveBeenCalledTimes(1);
   });
 });

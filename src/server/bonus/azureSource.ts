@@ -1,7 +1,9 @@
 import type OpenAI from 'openai';
-import { BonusChallenge, BonusRule } from '../../shared/contract';
+import { BonusChallenge, BonusRule, CategoryKey } from '../../shared/contract';
 import { createStructuredCompleter } from '../azure/structuredCompletion';
-import { endingsOf } from '../referee/bonusRule';
+import { endingsOf, satisfiesCheck } from '../referee/bonusRule';
+import { CATEGORY_KEYS, bonusMetFor } from '../referee/scoring';
+import { startsWithTargetLetter } from '../referee/targetLetter';
 import { BonusChallengeSource } from './types';
 import { RENDERABLE_ICONS } from './icons';
 
@@ -46,8 +48,21 @@ export function buildBonusSchema() {
         },
         required: ['scope', 'checkKind', 'checkValue'],
       },
+      // Generated last, so the model must prove the rule it has just committed
+      // to rather than writing examples and reverse-engineering a rule to fit.
+      examples: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          name: { type: 'string' },
+          place: { type: 'string' },
+          animal: { type: 'string' },
+          thing: { type: 'string' },
+        },
+        required: ['name', 'place', 'animal', 'thing'],
+      },
     },
-    required: ['id', 'title', 'description', 'icon', 'ruleHint', 'rule'],
+    required: ['id', 'title', 'description', 'icon', 'ruleHint', 'rule', 'examples'],
   };
 }
 
@@ -63,10 +78,28 @@ THE FOUR CATEGORIES ARE FIXED AND CANNOT CHANGE. Every round has exactly:
 
 Your rule must pass BOTH of these tests. Check them before you answer.
 
-TEST 1 — IS IT POSSIBLE? A rule is invalid if it asks a category to be something it cannot be.
-"All answers must be plants" fails, because a Name is a person and an Animal is a creature — neither
-can be a plant. "Every answer must be edible" fails for the same reason. Confirm a real answer exists
-for all four categories.
+TEST 1 — IS IT POSSIBLE? A rule is invalid if no real answer could satisfy it. There are two ways to
+fail this, and you must check both.
+
+(a) It asks a category to be something it cannot be. "All answers must be plants" fails, because a
+Name is a person and an Animal is a creature — neither can be a plant. "Every answer must be edible"
+fails for the same reason.
+
+(b) It is impossible FOR THIS PARTICULAR LETTER. This is the one that gets missed. A rule is not
+possible in the abstract; it is possible only combined with the letter of the day. "Every answer must
+contain at least 3 vowels" is comfortable for A and hopeless for a letter with few long vowel-rich
+animals. "Every answer must be at least 10 letters long" has answers for C and almost none for K.
+A rule that is impossible for even ONE of the four categories is unplayable: that category can never
+score the bonus, and the player is asked for something that does not exist.
+
+You must PROVE it, in the "examples" field: one real answer per category, all four starting with the
+target letter, all four satisfying your own rule. Think of the examples FIRST, before you settle the
+rule. If you cannot name a real Name, a real Place, a real Animal AND a real Thing that all start
+with the target letter and all satisfy your rule, then the rule fails this test — soften it and try
+again. A number is the easiest thing to soften: require 2 vowels instead of 3, or 5 letters instead
+of 8. Never invent, misspell or pad a word to fill the examples; a made-up example proves nothing and
+the challenge will be thrown away. If your rule names a single category, only that category's example
+has to satisfy the rule, but all four must still be real answers starting with the target letter.
 
 TEST 2 — IS IT ACTUALLY EXTRA? Every answer in this game ALREADY has to start with the target letter.
 A bonus that restates that rule is worthless, because every valid answer would earn it for free.
@@ -115,6 +148,11 @@ Constraints on the output:
       person, whether something is edible. Use "none" whenever no other kind fits exactly.
   - Never use a checkKind that does not match the description precisely. If the description says
     two vowels side by side, the kind is "adjacentVowels", not "minVowels".
+- examples: your proof for TEST 1 — a real Name, Place, Animal and Thing, every one of them starting
+  with the target letter, and every one of them satisfying your rule (only the named category's
+  example need satisfy a rule that names a single category). Just the word in each field, nothing
+  else. The game CHECKS these against your own rule and throws the whole challenge away if they do
+  not pass, so a challenge you cannot demonstrate is a challenge nobody gets to play.
 
 WHEN YOUR RULE IS ABOUT THE LETTERS IN THE WORDS, CHOOSE THE CHECK FIRST, THEN DESCRIBE IT.
 Pick exactly one checkKind from the list above and write the description to say precisely that and
@@ -312,6 +350,44 @@ For this round, write ${ruleFamily}.`;
 }
 
 /**
+ * Whether the model's own examples demonstrate its rule is playable.
+ *
+ * A rule is never possible in the abstract — only combined with the letter of
+ * the day. "Every answer must contain 3 vowels" is comfortable for A and may
+ * have no Animal at all for another letter, and a category with no possible
+ * answer can never score the bonus however well the round is played. Asking for
+ * a worked example per category turns that from a judgement into a fact: the
+ * model supplies the world knowledge (is "Stella" a name?) and the game checks
+ * the mechanics (does "Stella" start with S and carry a double letter?), which
+ * is the same division of labour the referee uses.
+ *
+ * The rule's own scope decides how much the examples must prove, via the same
+ * `bonusMetFor` the scorer uses — a rule naming one category is demonstrated by
+ * that category alone. Every example must still start with the target letter,
+ * because one that does not is not a legal answer and proves nothing.
+ */
+export function examplesProveChallenge(
+  examples: unknown,
+  letter: string,
+  rule: BonusRule
+): boolean {
+  const given = (examples ?? {}) as Partial<Record<CategoryKey, unknown>>;
+
+  const words = {} as Record<CategoryKey, string>;
+  for (const key of CATEGORY_KEYS) {
+    const word = typeof given[key] === 'string' ? (given[key] as string).trim() : '';
+    if (!startsWithTargetLetter(word, letter)) return false;
+    words[key] = word;
+  }
+
+  // null means the check needs world knowledge, which is not evidence against
+  // the example — only an outright false is.
+  const satisfied = CATEGORY_KEYS.filter((key) => satisfiesCheck(rule, words[key]) !== false);
+
+  return bonusMetFor(rule.scope, satisfied);
+}
+
+/**
  * Bonus challenge generator backed by a model deployed on Microsoft Foundry.
  *
  * `deployment` is the deployment name, which is what the API's `model`
@@ -320,6 +396,21 @@ For this round, write ${ruleFamily}.`;
  * `pickFamily` is injected so callers decide how variety is achieved: the daily
  * challenge rotates deterministically by date, practice avoids recent repeats.
  */
+/**
+ * A challenge the game rejected as unfit to serve — as opposed to a transport
+ * failure, a refusal or a content-filter rejection, which the completer names.
+ *
+ * Its own class because it is the one failure worth another attempt: the
+ * request was fine and the model simply produced something unplayable, so
+ * asking again is a fresh roll rather than a retry of a rejected prompt.
+ */
+export class UnfitChallengeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UnfitChallengeError';
+  }
+}
+
 export function createAzureBonusSource(
   client: OpenAI,
   deployment: string,
@@ -327,43 +418,68 @@ export function createAzureBonusSource(
 ): BonusChallengeSource {
   const completer = createStructuredCompleter(client, deployment);
 
+  async function generate(letter: string): Promise<BonusChallenge> {
+    // Refusals, truncation and filter rejections are named by the completer.
+    // Previously this parsed the raw content itself, so a truncated response
+    // surfaced as a bare JSON syntax error.
+    const parsed = await completer.complete<any>({
+      system: BONUS_SYSTEM_PROMPT,
+      user: buildBonusUserPrompt(letter, pickFamily()),
+      schemaName: 'bonus_challenge',
+      schema: buildBonusSchema(),
+      temperature: 0.8,
+    });
+
+    if (!parsed.title || !parsed.description) {
+      throw new Error('Azure bonus source returned an incomplete challenge');
+    }
+
+    if (restatesTargetLetter(parsed.description, letter)) {
+      throw new UnfitChallengeError(
+        `Azure bonus source restated the target letter: "${parsed.description}"`
+      );
+    }
+
+    // The schema constrains this, but the clamp stays: the UI can only render
+    // these seven icons, whatever the model sends.
+    const icon = RENDERABLE_ICONS.includes(parsed.icon) ? parsed.icon : 'Sparkles';
+    const rule = toBonusRule(parsed.rule);
+
+    // The examples are the model's proof that its rule has real answers for
+    // this letter. Checked against the clamped rule, not the raw one, so the
+    // proof covers the rule the round will actually be scored under.
+    if (!examplesProveChallenge(parsed.examples, letter, rule)) {
+      throw new UnfitChallengeError(
+        `Azure bonus source could not demonstrate "${parsed.description}" for letter ` +
+          `"${letter.toUpperCase()}": ${JSON.stringify(parsed.examples)}`
+      );
+    }
+
+    return {
+      id: parsed.id || `azure_${letter.toUpperCase()}_${Date.now()}`,
+      title: parsed.title,
+      description: parsed.description,
+      icon,
+      ruleHint: parsed.ruleHint || parsed.title,
+      rule,
+    };
+  }
+
   return {
     async next(letter: string): Promise<BonusChallenge> {
-      // Refusals, truncation and filter rejections are named by the completer.
-      // Previously this parsed the raw content itself, so a truncated response
-      // surfaced as a bare JSON syntax error.
-      const parsed = await completer.complete<any>({
-        system: BONUS_SYSTEM_PROMPT,
-        user: buildBonusUserPrompt(letter, pickFamily()),
-        schemaName: 'bonus_challenge',
-        schema: buildBonusSchema(),
-        temperature: 0.8,
-      });
+      try {
+        return await generate(letter);
+      } catch (err) {
+        // Only the game's own verdict earns a second attempt, and only one:
+        // roughly one generation in twelve is unplayable, and falling straight
+        // back would spend a whole day on a built-in challenge for that. A
+        // refusal or a content_filter rejection must never be retried, so
+        // anything the completer raised is rethrown untouched.
+        if (!(err instanceof UnfitChallengeError)) throw err;
 
-      if (!parsed.title || !parsed.description) {
-        throw new Error('Azure bonus source returned an incomplete challenge');
+        console.warn(`${err.message} — generating a replacement.`);
+        return generate(letter);
       }
-
-      // Throwing engages withBonusFallback, so a challenge that restates the
-      // letter rule is replaced rather than served for the whole day.
-      if (restatesTargetLetter(parsed.description, letter)) {
-        throw new Error(
-          `Azure bonus source restated the target letter: "${parsed.description}"`
-        );
-      }
-
-      // The schema constrains this, but the clamp stays: the UI can only render
-      // these seven icons, whatever the model sends.
-      const icon = RENDERABLE_ICONS.includes(parsed.icon) ? parsed.icon : 'Sparkles';
-
-      return {
-        id: parsed.id || `azure_${letter.toUpperCase()}_${Date.now()}`,
-        title: parsed.title,
-        description: parsed.description,
-        icon,
-        ruleHint: parsed.ruleHint || parsed.title,
-        rule: toBonusRule(parsed.rule),
-      };
     },
   };
 }
