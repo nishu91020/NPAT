@@ -33,6 +33,7 @@ import {
   resolveAzureConfig,
   type AzureClient,
 } from './azure';
+import { RoomError, createRoomService } from './rooms';
 
 import {
   createAzureMonitorTelemetry,
@@ -205,6 +206,108 @@ app.post('/api/validate', async (req, res) => {
     durationMs: Date.now() - started,
     totalScore: evaluation.totalScore,
     filteredCategories: unscoreableCategories(evaluation.categories),
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * Rooms — playing the same letter against other people.
+ *
+ * A room plays its OWN random letter, never the daily one, and its results never
+ * touch the streak or the saved stats. That keeps the daily puzzle exactly as it
+ * is: one letter a day, played once, with nothing about rooms able to corrupt it.
+ * ------------------------------------------------------------------------- */
+
+const rooms = createRoomService({
+  judge,
+  // Each round draws a fresh letter, skipping the one just played.
+  nextPuzzle: async (excludeLetter) => {
+    const puzzle = getRandomPuzzleData(excludeLetter);
+    const bonusChallenge = await practiceBonus.next(puzzle.letter);
+    return { letter: puzzle.letter, bonusChallenge };
+  },
+});
+
+/** Rejects junk before it reaches the room service. */
+function readIdentity(req: express.Request): { playerId: string; name: string } {
+  const playerId = typeof req.body?.playerId === 'string' ? req.body.playerId.trim() : '';
+  const rawName = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+
+  if (!playerId) throw new RoomError('Missing player id.', 400);
+  if (!rawName) throw new RoomError('Please enter a name.', 400);
+
+  return { playerId, name: rawName.slice(0, 20) };
+}
+
+/** One place to turn a RoomError into a response, so every route reads the same. */
+async function handleRoom(res: express.Response, work: () => Promise<unknown>) {
+  try {
+    res.json(await work());
+  } catch (err) {
+    if (err instanceof RoomError) {
+      return res.status(err.status).json({ error: err.message });
+    }
+    console.error('Room request failed:', err);
+    telemetry.failure('rooms', err);
+    res.status(500).json({ error: 'Something went wrong with that room.' });
+  }
+}
+
+app.post('/api/rooms', async (req, res) => {
+  await handleRoom(res, async () => {
+    const { playerId, name } = readIdentity(req);
+    return rooms.create(playerId, name);
+  });
+});
+
+app.post('/api/rooms/:code/join', async (req, res) => {
+  await handleRoom(res, async () => {
+    const { playerId, name } = readIdentity(req);
+    return rooms.join(req.params.code, playerId, name);
+  });
+});
+
+// The polling endpoint. Also what marks a player present — on a polling
+// transport there is no disconnect event, so absence is inferred from silence.
+app.get('/api/rooms/:code', async (req, res) => {
+  await handleRoom(res, async () => {
+    const playerId = typeof req.query.playerId === 'string' ? req.query.playerId : '';
+    if (!playerId) throw new RoomError('Missing player id.', 400);
+    return rooms.view(req.params.code, playerId);
+  });
+});
+
+app.post('/api/rooms/:code/start', async (req, res) => {
+  await handleRoom(res, async () => {
+    const playerId = typeof req.body?.playerId === 'string' ? req.body.playerId : '';
+    if (!playerId) throw new RoomError('Missing player id.', 400);
+    return rooms.start(req.params.code, playerId);
+  });
+});
+
+app.post('/api/rooms/:code/submit', async (req, res) => {
+  await handleRoom(res, async () => {
+    const playerId = typeof req.body?.playerId === 'string' ? req.body.playerId : '';
+    const answers = req.body?.answers;
+    if (!playerId) throw new RoomError('Missing player id.', 400);
+    if (!answers) throw new RoomError('Missing answers.', 400);
+    // The clock is the server's: nothing the client says about timing is read.
+    return rooms.submit(req.params.code, playerId, answers);
+  });
+});
+
+app.post('/api/rooms/:code/next', async (req, res) => {
+  await handleRoom(res, async () => {
+    const playerId = typeof req.body?.playerId === 'string' ? req.body.playerId : '';
+    if (!playerId) throw new RoomError('Missing player id.', 400);
+    return rooms.next(req.params.code, playerId);
+  });
+});
+
+app.post('/api/rooms/:code/leave', async (req, res) => {
+  await handleRoom(res, async () => {
+    const playerId = typeof req.body?.playerId === 'string' ? req.body.playerId : '';
+    if (playerId) await rooms.leave(req.params.code, playerId);
+    return { ok: true };
   });
 });
 

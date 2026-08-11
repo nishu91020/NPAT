@@ -1,19 +1,41 @@
-import React, { useState, useEffect } from 'react';
-import { DailyPuzzle, UserAnswers, ValidationResponse } from '../shared/contract';
+import React, { useState, useEffect, useRef } from 'react';
+import { DailyPuzzle, UserAnswers, ValidationResponse, RoomView } from '../shared/contract';
 import { GameResult, GameStats } from './types';
 import { getDailyPuzzleData, getRandomPuzzleData } from '../shared/puzzle';
-import { loadGameStats, recordGameCompletion, loadTodayDailyResult } from './storage';
+import {
+  loadGameStats,
+  recordGameCompletion,
+  loadTodayDailyResult,
+  loadPlayerIdentity,
+  savePlayerIdentity,
+} from './storage';
+import {
+  ROOM_POLL_MS,
+  RoomRequestError,
+  createRoom,
+  fetchRoom,
+  joinRoom,
+  leaveRoom,
+  nextRoomRound,
+  startRoomRound,
+  submitRoomAnswers,
+} from './roomClient';
 import { playSuccessSound, playFailureSound, playClickSound, setMuted } from './audio';
 import { Header } from './components/Header';
+import { LandingScreen } from './components/LandingScreen';
+import { RoomScreen } from './components/RoomScreen';
 import { LetterBanner } from './components/LetterBanner';
 import { CategoryInputForm } from './components/CategoryInputForm';
 import { ValidationResultCard } from './components/ValidationResultCard';
 import { StreakStatsModal } from './components/StreakStatsModal';
 import { HelpRulesModal } from './components/HelpRulesModal';
 import { SeoFaqSection } from './components/SeoFaqSection';
-import { Sparkles, Trophy, Flame, RefreshCw, Calendar, Share2, HelpCircle, AlertCircle } from 'lucide-react';
+import { Sparkles, Trophy, Flame, RefreshCw, Calendar, Share2, HelpCircle, AlertCircle, ArrowLeft } from 'lucide-react';
 
 export default function App() {
+  // The front door. 'landing' offers the three ways in; 'game' is a solo round;
+  // 'room' is a live race against other people.
+  const [view, setView] = useState<'landing' | 'game' | 'room'>('landing');
   const [mode, setMode] = useState<'daily' | 'practice'>('daily');
   const [puzzle, setPuzzle] = useState<DailyPuzzle>(getDailyPuzzleData());
   const [gameResult, setGameResult] = useState<GameResult | null>(null);
@@ -24,6 +46,19 @@ export default function App() {
   const [isStatsOpen, setIsStatsOpen] = useState<boolean>(false);
   const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
+
+  // --- rooms ---------------------------------------------------------------
+  const [player, setPlayer] = useState(loadPlayerIdentity);
+  const [room, setRoom] = useState<RoomView | null>(null);
+  const [roomError, setRoomError] = useState<string | null>(null);
+  const [roomBusy, setRoomBusy] = useState<boolean>(false);
+  /** When `room` was received, so the countdown runs off the server's clock. */
+  const roomFetchedAt = useRef<number>(0);
+  // An invite link (/?room=CODE) prefills the join form.
+  const [inviteCode] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    return (new URLSearchParams(window.location.search).get('room') ?? '').toUpperCase();
+  });
 
   const todayStr = new Date().toISOString().split('T')[0];
 
@@ -74,6 +109,8 @@ export default function App() {
   const handleSelectMode = (newMode: 'daily' | 'practice') => {
     setMode(newMode);
     setSubmitError(null);
+    // Choosing a mode from the header is also a request to start playing it.
+    setView('game');
     if (newMode === 'daily') {
       fetchDailyPuzzle();
     } else {
@@ -82,6 +119,138 @@ export default function App() {
     }
   };
 
+  const handleGoHome = () => {
+    setSubmitError(null);
+    setView('landing');
+  };
+
+  const handleDailyChallenge = () => {
+    setSubmitError(null);
+    setMode('daily');
+    setView('game');
+    fetchDailyPuzzle();
+  };
+
+  // Rooms: create, join, poll, play, leave.
+  const applyRoom = (next: RoomView) => {
+    roomFetchedAt.current = Date.now();
+    setRoom(next);
+    setRoomError(null);
+  };
+
+  const describeRoomError = (err: unknown): string =>
+    err instanceof RoomRequestError ? err.message : 'Something went wrong. Try again.';
+
+  const rememberName = (name: string) => {
+    const identity = { ...player, name };
+    setPlayer(identity);
+    savePlayerIdentity(identity);
+    return identity;
+  };
+
+  const handleCreateRoom = async (name: string) => {
+    setRoomBusy(true);
+    setRoomError(null);
+    try {
+      const identity = rememberName(name);
+      applyRoom(await createRoom(identity.id, name));
+      setView('room');
+    } catch (err) {
+      setRoomError(describeRoomError(err));
+    } finally {
+      setRoomBusy(false);
+    }
+  };
+
+  const handleJoinRoom = async (name: string, code: string) => {
+    setRoomBusy(true);
+    setRoomError(null);
+    try {
+      const identity = rememberName(name);
+      applyRoom(await joinRoom(code, identity.id, name));
+      setView('room');
+    } catch (err) {
+      setRoomError(describeRoomError(err));
+    } finally {
+      setRoomBusy(false);
+    }
+  };
+
+  const handleStartRoomRound = async () => {
+    if (!room) return;
+    setRoomBusy(true);
+    try {
+      applyRoom(await startRoomRound(room.code, player.id));
+    } catch (err) {
+      setRoomError(describeRoomError(err));
+    } finally {
+      setRoomBusy(false);
+    }
+  };
+
+  const handleRoomSubmit = async (answers: UserAnswers) => {
+    if (!room) return;
+    setRoomBusy(true);
+    try {
+      applyRoom(await submitRoomAnswers(room.code, player.id, answers));
+    } catch (err) {
+      setRoomError(describeRoomError(err));
+    } finally {
+      setRoomBusy(false);
+    }
+  };
+
+  const handleNextRoomRound = async () => {
+    if (!room) return;
+    setRoomBusy(true);
+    try {
+      applyRoom(await nextRoomRound(room.code, player.id));
+    } catch (err) {
+      setRoomError(describeRoomError(err));
+    } finally {
+      setRoomBusy(false);
+    }
+  };
+
+  const handleLeaveRoom = () => {
+    if (room) leaveRoom(room.code, player.id);
+    setRoom(null);
+    setRoomError(null);
+    setView('landing');
+    // Drop the invite parameter so a refresh does not rejoin what you just left.
+    if (typeof window !== 'undefined' && window.location.search.includes('room=')) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  };
+
+  /**
+   * Polling, not sockets: the room in the store is already the source of truth,
+   * so this survives the app running on several replicas without a backplane.
+   * It doubles as the presence heartbeat — a player who stops polling is dropped.
+   */
+  useEffect(() => {
+    if (view !== 'room' || !room) return;
+    const code = room.code;
+
+    const id = window.setInterval(async () => {
+      try {
+        const next = await fetchRoom(code, player.id);
+        roomFetchedAt.current = Date.now();
+        setRoom(next);
+      } catch (err) {
+        // A room that has closed under us is worth surfacing; a blip is not.
+        if (err instanceof RoomRequestError && err.status === 404) {
+          setRoomError('That room has closed.');
+          setRoom(null);
+          setView('landing');
+        }
+      }
+    }, ROOM_POLL_MS);
+
+    return () => window.clearInterval(id);
+  }, [view, room?.code, player.id]);
+
+  const hasPlayedTodayOfficial = !!loadTodayDailyResult(todayStr);
   const handleNewPracticeRound = () => {
     setGameResult(null);
     setSubmitError(null);
@@ -162,15 +331,15 @@ export default function App() {
     setStats(updatedStats);
   };
 
-  const hasPlayedTodayOfficial = !!loadTodayDailyResult(todayStr);
-
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 flex flex-col selection:bg-indigo-600 selection:text-white">
       {/* Top Navigation Header */}
       <Header
         streak={stats.currentStreak}
         mode={mode}
+        showModeSelector={view === 'game'}
         onSelectMode={handleSelectMode}
+        onGoHome={handleGoHome}
         onOpenStats={() => setIsStatsOpen(true)}
         onOpenHelp={() => setIsHelpOpen(true)}
         soundEnabled={soundEnabled}
@@ -179,39 +348,82 @@ export default function App() {
 
       {/* Main Container */}
       <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-8 py-6 sm:py-8 space-y-8">
-        {/* Letter & Bonus Challenge Banner */}
-        <LetterBanner
-          puzzle={puzzle}
-          mode={mode}
-          onNewPracticeRound={handleNewPracticeRound}
-          hasPlayedToday={hasPlayedTodayOfficial}
-        />
-
-        {/* Dynamic State Section */}
-        {gameResult ? (
-          <ValidationResultCard
-            result={gameResult}
-            onPlayAgain={mode === 'practice' ? handleNewPracticeRound : undefined}
-            onViewStats={() => setIsStatsOpen(true)}
-            mode={mode}
+        {view === 'landing' ? (
+          <LandingScreen
+            streak={stats.currentStreak}
+            dayNumber={puzzle.dayNumber}
+            hasPlayedToday={hasPlayedTodayOfficial}
+            playerName={player.name}
+            initialCode={inviteCode}
+            isBusy={roomBusy}
+            error={roomError}
+            onDailyChallenge={handleDailyChallenge}
+            onCreateRoom={handleCreateRoom}
+            onJoinRoom={handleJoinRoom}
+            onDismissError={() => setRoomError(null)}
+          />
+        ) : view === 'room' && room ? (
+          <RoomScreen
+            room={room}
+            fetchedAtMs={roomFetchedAt.current}
+            error={roomError}
+            isBusy={roomBusy}
+            onStartRound={handleStartRoomRound}
+            onSubmit={handleRoomSubmit}
+            onNextRound={handleNextRoomRound}
+            onLeave={handleLeaveRoom}
           />
         ) : (
           <>
-            {submitError && (
-              <div
-                id="submit-error-banner"
-                role="alert"
-                className="p-4 bg-rose-50 border-l-4 border-rose-500 text-rose-900 text-xs font-bold uppercase tracking-wider flex items-center gap-2"
-              >
-                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-                <span>{submitError}</span>
-              </div>
-            )}
-            <CategoryInputForm
+            {/* The way out of a round. The header logo goes home too, but that is
+                not discoverable enough to be the only exit. */}
+            <button
+              id="back-to-menu-btn"
+              onClick={() => {
+                playClickSound();
+                handleGoHome();
+              }}
+              className="min-h-[44px] inline-flex items-center gap-2 px-4 py-2 bg-white border-2 border-slate-200 hover:border-slate-900 text-slate-700 hover:text-slate-900 font-black text-[10px] uppercase tracking-widest transition-colors"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Back to menu</span>
+            </button>
+
+            {/* Letter & Bonus Challenge Banner */}
+            <LetterBanner
               puzzle={puzzle}
-              onSubmit={handleSubmitAnswers}
-              isSubmitting={isSubmitting}
+              mode={mode}
+              onNewPracticeRound={handleNewPracticeRound}
+              hasPlayedToday={hasPlayedTodayOfficial}
             />
+
+            {/* Dynamic State Section */}
+            {gameResult ? (
+              <ValidationResultCard
+                result={gameResult}
+                onPlayAgain={mode === 'practice' ? handleNewPracticeRound : undefined}
+                onViewStats={() => setIsStatsOpen(true)}
+                mode={mode}
+              />
+            ) : (
+              <>
+                {submitError && (
+                  <div
+                    id="submit-error-banner"
+                    role="alert"
+                    className="p-4 bg-rose-50 border-l-4 border-rose-500 text-rose-900 text-xs font-bold uppercase tracking-wider flex items-center gap-2"
+                  >
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                    <span>{submitError}</span>
+                  </div>
+                )}
+                <CategoryInputForm
+                  puzzle={puzzle}
+                  onSubmit={handleSubmitAnswers}
+                  isSubmitting={isSubmitting}
+                />
+              </>
+            )}
           </>
         )}
 

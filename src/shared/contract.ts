@@ -92,3 +92,85 @@ export interface ValidationResponse {
   overallFeedback: string;
   judgedBy?: JudgedBy;
 }
+
+/* ---------------------------------------------------------------------------
+ * Rooms — playing the same letter against other people.
+ *
+ * A room is the first thing in this app with state that outlives a request and
+ * is shared between players. The round is a live synchronised race: the host
+ * starts it, everyone runs one clock the SERVER owns, and answers are revealed
+ * together. See .scratch/multiplayer-rooms/ for how each rule was decided.
+ * ------------------------------------------------------------------------- */
+
+export type RoomPhase = 'lobby' | 'racing' | 'judging' | 'reveal';
+
+export interface RoomPlayer {
+  id: string;
+  name: string;
+  isHost: boolean;
+  present: boolean;
+  /** Whether they are in the round currently running. Late joiners are not. */
+  racing: boolean;
+  hasSubmitted: boolean;
+}
+
+/**
+ * The round in progress.
+ *
+ * `endsAt` and `serverNow` are both sent so the client can render a countdown
+ * from the *difference* rather than trusting its own clock, which may be wrong
+ * by minutes. The server alone decides when the round is actually over.
+ */
+export interface RoomRound {
+  number: number;
+  letter: string;
+  bonusChallenge: BonusChallenge;
+  endsAt: string;
+  serverNow: string;
+}
+
+/** One player's scored round. Identical to a solo round — see RoomScoreRow. */
+export interface RoomScoreRow {
+  playerId: string;
+  name: string;
+  /** Standard competition ranking: players level on score AND time share a rank. */
+  rank: number;
+  tied: boolean;
+  totalScore: number;
+  speedBonus: number;
+  timeTakenSeconds: number;
+  /** True when the clock ran out before they submitted. */
+  auto: boolean;
+  answers: UserAnswers;
+  categories: Record<CategoryKey, CategoryValidation>;
+  judgedBy?: JudgedBy;
+}
+
+export interface RoomStandingRow {
+  playerId: string;
+  name: string;
+  rank: number;
+  tied: boolean;
+  totalScore: number;
+  roundsPlayed: number;
+  wins: number;
+}
+
+export interface RoomResults {
+  rows: RoomScoreRow[];
+  endedBy: 'all-submitted' | 'clock';
+}
+
+/** Everything one player needs to render the room. The only room shape on the wire. */
+export interface RoomView {
+  code: string;
+  phase: RoomPhase;
+  players: RoomPlayer[];
+  round: RoomRound | null;
+  results: RoomResults | null;
+  standings: RoomStandingRow[];
+  roundsPlayed: number;
+  /** Who the caller is, so the client never has to guess which player is theirs. */
+  youId: string;
+  youAreHost: boolean;
+}

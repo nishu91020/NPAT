@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>PROTOTYPE — Letters Daily rooms (live race)</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #f8fafc; color: #0f172a;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .banner { background: #b91c1c; color: #fff; padding: 10px 20px;
+    font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .15em; }
+  header { background: #0f172a; color: #fff; padding: 20px; }
+  header h1 { margin: 0; font-size: 20px; font-weight: 900; letter-spacing: -.02em; }
+  header p { margin: 6px 0 0; font-size: 12px; color: #94a3b8; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 20px; display: grid;
+    grid-template-columns: 320px 1fr 340px; gap: 20px; align-items: start; }
+  @media (max-width: 1100px) { .wrap { grid-template-columns: 1fr; } }
+  .panel { background: #fff; border: 2px solid #e2e8f0; padding: 16px; margin-bottom: 20px; }
+  .label { font-size: 10px; font-weight: 900; text-transform: uppercase;
+    letter-spacing: .15em; color: #94a3b8; margin: 0 0 10px; }
+  .accent { border-left: 4px solid #4f46e5; padding-left: 12px; }
+  button { min-height: 40px; padding: 8px 12px; border: 2px solid #0f172a; background: #fff;
+    font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: .1em;
+    cursor: pointer; margin: 0 6px 6px 0; }
+  button:hover:not(:disabled) { background: #0f172a; color: #fff; }
+  button:disabled { opacity: .3; cursor: not-allowed; border-color: #cbd5e1; }
+  button.primary { background: #0f172a; color: #fff; box-shadow: 6px 6px 0 0 rgba(0,0,0,.1); }
+  button.primary:hover:not(:disabled) { background: #312e81; }
+  .phase { display: inline-block; padding: 4px 10px; font-size: 10px; font-weight: 900;
+    text-transform: uppercase; letter-spacing: .15em; color: #fff; background: #4f46e5; }
+  .phase.racing { background: #e11d48; } .phase.judging { background: #d97706; }
+  .phase.reveal { background: #059669; } .phase.lobby { background: #475569; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 10px; font-weight: 900; text-transform: uppercase;
+    letter-spacing: .1em; color: #94a3b8; padding: 6px 8px; border-bottom: 2px solid #e2e8f0; }
+  td { padding: 8px; border-bottom: 1px solid #f1f5f9; }
+  .rank { font-weight: 900; font-size: 18px; width: 44px; }
+  .rank.r1 { color: #d97706; } .win { background: #fffbeb; }
+  .score { font-weight: 900; font-family: ui-monospace, monospace; }
+  .muted { color: #94a3b8; } .bad { color: #e11d48; } .good { color: #059669; }
+  .pill { display: inline-block; font-size: 9px; font-weight: 900; text-transform: uppercase;
+    letter-spacing: .1em; padding: 2px 6px; border: 1px solid; }
+  .pill.dup { color: #7c3aed; border-color: #ddd6fe; background: #f5f3ff; }
+  .pill.auto { color: #e11d48; border-color: #fecdd3; background: #fff1f2; }
+  .pill.host { color: #4f46e5; border-color: #c7d2fe; background: #eef2ff; }
+  .pill.gone { color: #94a3b8; border-color: #e2e8f0; }
+  pre { background: #0f172a; color: #a5b4fc; padding: 12px; font-size: 11px;
+    overflow: auto; max-height: 340px; margin: 0; }
+  .log { font-size: 11px; max-height: 240px; overflow: auto; }
+  .log div { padding: 4px 0; border-bottom: 1px solid #f1f5f9; }
+  .log b { color: #4f46e5; font-family: ui-monospace, monospace; }
+  .scenario { border: 2px solid #e2e8f0; padding: 12px; margin-bottom: 10px; }
+  .scenario.active { border-color: #4f46e5; background: #eef2ff; }
+  .scenario h3 { margin: 0 0 4px; font-size: 13px; font-weight: 900; }
+  .scenario p { margin: 0; font-size: 12px; color: #475569; }
+  .narration { background: #fffbeb; border-left: 4px solid #f59e0b; padding: 12px;
+    font-size: 13px; margin-bottom: 12px; }
+  .clock { font-family: ui-monospace, monospace; font-size: 28px; font-weight: 900; }
+  .settled { background: #ecfdf5; border-left: 4px solid #059669; padding: 10px 12px;
+    font-size: 12px; margin-bottom: 10px; }
+  input { border: 2px solid #e2e8f0; padding: 8px; font-size: 13px; width: 100%;
+    font-weight: 700; text-transform: uppercase; }
+</style>
+</head>
+<body>
+<div class="banner">⚠️ Prototype — throwaway. Judging is faked. Not production code, not wired into the app.</div>
+<header>
+  <h1>Rooms — live synchronised race</h1>
+  <p>Drives the room state machine through the cases that are hard to reason about on paper.
+     Every action re-renders the full state below.</p>
+</header>
+
+<div class="wrap">
+  <!-- LEFT: scenarios + controls -->
+  <div>
+    <div class="panel">
+      <p class="label">Settled decisions this encodes</p>
+      <div class="settled"><b>Round shape B</b> — a live synchronised race.</div>
+      <div class="settled"><b>A round ends</b> when everyone has submitted <b>or</b> the timer expires — whichever comes first.</div>
+      <div class="settled"><b>Duplicate answers do NOT score less.</b> Each player is scored exactly as a solo round is today.</div>
+      <div class="settled"><b>A room is a session</b> of many rounds; standings accumulate.</div>
+    </div>
+
+    <div class="panel">
+      <p class="label">Guided walkthroughs</p>
+      <div id="scenarios"></div>
+      <button class="primary" id="step-btn">Run next step ▶</button>
+      <button id="reset-btn">Reset</button>
+    </div>
+
+    <div class="panel">
+      <p class="label">Free play</p>
+      <input id="new-name" placeholder="Player name" />
+      <div style="margin-top:8px">
+        <button id="add-btn">+ Join</button>
+        <button id="start-btn">Start round</button>
+      </div>
+      <p class="label" style="margin-top:14px">Clock</p>
+      <button data-tick="5">+5s</button>
+      <button data-tick="15">+15s</button>
+      <button data-tick="60">Expire</button>
+      <button id="judged-btn">Judging done</button>
+      <button id="lobby-btn">Back to lobby</button>
+    </div>
+  </div>
+
+  <!-- MIDDLE: the room -->
+  <div>
+    <div class="panel">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <p class="label" style="margin:0">Room <b id="code"></b> · letter <b id="letter"></b></p>
+          <span class="phase" id="phase"></span>
+        </div>
+        <div style="text-align:right">
+          <p class="label" style="margin:0">Time left</p>
+          <div class="clock" id="clock">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" id="narration-panel" style="display:none">
+      <p class="label">What to look for</p>
+      <div class="narration" id="narration"></div>
+    </div>
+
+    <div class="panel">
+      <p class="label">Players</p>
+      <div id="players"></div>
+    </div>
+
+    <div class="panel" id="leaderboard-panel">
+      <p class="label">Round leaderboard</p>
+      <div id="leaderboard"></div>
+    </div>
+
+    <div class="panel">
+      <p class="label">Session standings</p>
+      <div id="standings"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT: raw state -->
+  <div>
+    <div class="panel">
+      <p class="label">Event log</p>
+      <div class="log" id="log"></div>
+    </div>
+    <div class="panel">
+      <p class="label">Raw room state</p>
+      <pre id="raw"></pre>
+    </div>
+  </div>
+</div>
+
+<script src="room-state.js"></script>
+<script>
+const R = window.RoomProto;
+const GOOD  = { name: 'Sam',  place: 'Spain',  animal: 'Snake', thing: 'Spoon' };
+const GOOD2 = { name: 'Sara', place: 'Sydney', animal: 'Swan',  thing: 'Sofa' };
+const LONG  = { name: 'Solomon', place: 'Singapore', animal: 'Squirrel', thing: 'Saucepan' };
+const PARTIAL = { name: 'Sam', place: 'Xanadu', animal: '', thing: 'Spoon' };
+
+let room, scenario = null, stepIndex = 0;
+
+/* Each scenario is a list of [narration, fn]. */
+const SCENARIOS = [
+  {
+    title: 'Everyone submits — round ends early',
+    blurb: 'The round should end the moment the last player submits, not when the clock runs out.',
+    steps: [
+      ['Three players join. The first to arrive is host.', (r) => {
+        R.join(r,'p1','Ana'); R.join(r,'p2','Ben'); R.join(r,'p3','Cal');
+      }],
+      ['Ana (host) starts the round. All three are racers on one shared 60s clock.', (r) => R.startRound(r,'p1')],
+      ['8 seconds in, Ana submits. The round must NOT end — two players are still typing.', (r) => { R.tick(r,8); R.submit(r,'p1',GOOD); }],
+      ['Ben submits at 14s. Still racing.', (r) => { R.tick(r,6); R.submit(r,'p2',GOOD2); }],
+      ['Cal submits at 20s — the last one. Phase flips to JUDGING, ended by all-submitted, with 40s still on the clock.', (r) => { R.tick(r,6); R.submit(r,'p3',LONG); }],
+      ['Judging completes. Leaderboard ranks by score; Cal\'s long words earn bonus points.', (r) => R.judged(r)],
+    ],
+  },
+  {
+    title: 'One player never submits — the clock ends it',
+    blurb: 'A slow player must not hold the room hostage beyond the timer everyone agreed to.',
+    steps: [
+      ['Two players join and Ana starts the round.', (r) => { R.join(r,'p1','Ana'); R.join(r,'p2','Ben'); R.startRound(r,'p1'); }],
+      ['Ana submits at 12s. Ben goes quiet — coffee, phone call, closed laptop.', (r) => { R.tick(r,12); R.submit(r,'p1',GOOD); }],
+      ['Clock runs to the deadline. Round ends by CLOCK; Ben is auto-submitted with whatever he had (nothing).', (r) => R.tick(r,90)],
+      ['Judging. Ben scores 0 and is marked AUTO — he is still ranked, not dropped.', (r) => R.judged(r)],
+    ],
+  },
+  {
+    title: 'Duplicate answers — nobody is penalised',
+    blurb: 'THE RULE YOU SET: three players write the identical four words and all score exactly the same.',
+    steps: [
+      ['Three players join and start.', (r) => { R.join(r,'p1','Ana'); R.join(r,'p2','Ben'); R.join(r,'p3','Cal'); R.startRound(r,'p1'); }],
+      ['All three submit the SAME four words, at the same moment.', (r) => { R.tick(r,10); R.submit(r,'p1',GOOD); R.submit(r,'p2',GOOD); R.submit(r,'p3',GOOD); }],
+      ['Judging. Identical scores, a three-way tie sharing rank 1. The reveal flags the clash as a talking point only — zero points lost.', (r) => R.judged(r)],
+    ],
+  },
+  {
+    title: 'Speed decides a tie',
+    blurb: 'Same answers, different times: the speed bonus separates them, so the race is worth running.',
+    steps: [
+      ['Two players join and start.', (r) => { R.join(r,'p1','Quick'); R.join(r,'p2','Steady'); R.startRound(r,'p1'); }],
+      ['Quick submits at 5s — inside the top speed tier (+20).', (r) => { R.tick(r,5); R.submit(r,'p1',GOOD); }],
+      ['Steady submits the SAME words at 40s — a lower tier (+5).', (r) => { R.tick(r,35); R.submit(r,'p2',GOOD); }],
+      ['Judging. Identical answers, different totals, purely on speed.', (r) => R.judged(r)],
+    ],
+  },
+  {
+    title: 'Someone arrives mid-round',
+    blurb: 'A late joiner cannot race a shorter clock, and must not block the round from ending.',
+    steps: [
+      ['Two players join and start a round.', (r) => { R.join(r,'p1','Ana'); R.join(r,'p2','Ben'); R.startRound(r,'p1'); }],
+      ['Dee opens the invite link 10s in. She is in the room but NOT a racer this round.', (r) => { R.tick(r,10); R.join(r,'p9','Dee'); }],
+      ['Ana and Ben submit. The round ends — Dee is not waited for.', (r) => { R.submit(r,'p1',GOOD); R.submit(r,'p2',GOOD2); }],
+      ['Judging, then back to the lobby.', (r) => { R.judged(r); R.backToLobby(r); }],
+      ['Next round: Dee races too.', (r) => R.startRound(r,'p1')],
+    ],
+  },
+  {
+    title: 'The host walks out mid-round',
+    blurb: 'The room must not be left with nobody able to start the next round.',
+    steps: [
+      ['Three players join, Ana is host, round starts.', (r) => { R.join(r,'p1','Ana'); R.join(r,'p2','Ben'); R.join(r,'p3','Cal'); R.startRound(r,'p1'); }],
+      ['Ben and Cal submit. Ana (host) still hasn\'t.', (r) => { R.tick(r,10); R.submit(r,'p2',GOOD); R.submit(r,'p3',GOOD2); }],
+      ['Ana closes her laptop. Host migrates to Ben, and her departure COMPLETES the round.', (r) => R.leave(r,'p1')],
+      ['Judging. Ana is auto-submitted and scores 0.', (r) => R.judged(r)],
+    ],
+  },
+  {
+    title: '⚠️ The solo host refreshes the page',
+    blurb: 'FOUND BY THIS PROTOTYPE: closing the room the instant it emptied meant a refresh destroyed your own room.',
+    steps: [
+      ['Ana creates a room, alone.', (r) => R.join(r,'p1','Ana')],
+      ['Ana hits F5. To the server this is indistinguishable from leaving — the room empties.', (r) => R.leave(r,'p1')],
+      ['The room does NOT close. It starts a 120s grace clock instead.', (r) => R.tick(r,5)],
+      ['The browser reconnects with the same client id. Ana reclaims her seat AND the host role.', (r) => R.join(r,'p1','Ana')],
+      ['For contrast: she leaves for good and the grace period expires. Now it closes.', (r) => { R.leave(r,'p1'); R.tick(r,125); }],
+    ],
+  },
+  {
+    title: 'A session of several rounds',
+    blurb: 'Standings accumulate across rounds — the thing people actually argue about.',
+    steps: [
+      ['Three players join.', (r) => { R.join(r,'p1','Ana'); R.join(r,'p2','Ben'); R.join(r,'p3','Cal'); }],
+      ['Round 1: Ana fastest, Cal writes long words.', (r) => { R.startRound(r,'p1'); R.tick(r,6); R.submit(r,'p1',GOOD); R.submit(r,'p2',GOOD2); R.tick(r,10); R.submit(r,'p3',LONG); R.judged(r); R.backToLobby(r); }],
+      ['Round 2: Ben rushes it, Ana fumbles one answer.', (r) => { R.startRound(r,'p1'); R.tick(r,4); R.submit(r,'p2',LONG); R.tick(r,12); R.submit(r,'p1',PARTIAL); R.submit(r,'p3',GOOD2); R.judged(r); R.backToLobby(r); }],
+      ['Round 3: everyone plays well.', (r) => { R.startRound(r,'p1'); R.tick(r,9); R.submit(r,'p1',LONG); R.submit(r,'p2',GOOD); R.submit(r,'p3',GOOD2); R.judged(r); R.backToLobby(r); }],
+    ],
+  },
+];
+
+function reset() {
+  room = R.createRoom({ code: 'PLAY', letter: 'S' });
+  stepIndex = 0;
+  render();
+}
+
+function selectScenario(i) {
+  scenario = i;
+  reset();
+}
+
+function runStep() {
+  if (scenario === null) return;
+  const steps = SCENARIOS[scenario].steps;
+  if (stepIndex >= steps.length) return;
+  const [narration, fn] = steps[stepIndex];
+  fn(room);
+  room.__narration = narration;
+  stepIndex += 1;
+  render();
+}
+
+// --- rendering -------------------------------------------------------------
+
+function esc(s) { return String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
+
+function renderScenarios() {
+  document.getElementById('scenarios').innerHTML = SCENARIOS.map((s, i) => `
+    <div class="scenario ${i === scenario ? 'active' : ''}" data-scenario="${i}" style="cursor:pointer">
+      <h3>${esc(s.title)}</h3>
+      <p>${esc(s.blurb)}</p>
+      ${i === scenario ? `<p class="label" style="margin-top:8px">Step ${stepIndex} / ${s.steps.length}</p>` : ''}
+    </div>`).join('');
+}
+
+function renderPlayers() {
+  const el = document.getElementById('players');
+  if (!room.players.length) { el.innerHTML = '<p class="muted">Nobody here yet.</p>'; return; }
+  el.innerHTML = `<table><tbody>${room.players.map((p) => {
+    const submitted = room.round && room.round.submissions[p.id];
+    const racing = room.round && room.round.racers.includes(p.id);
+    return `<tr>
+      <td><b>${esc(p.name)}</b> ${p.isHost ? '<span class="pill host">Host</span>' : ''}
+          ${p.present ? '' : '<span class="pill gone">Away</span>'}</td>
+      <td style="text-align:right">${
+        room.phase === 'racing'
+          ? racing
+            ? submitted ? '<span class="good">✔ submitted</span>' : '<span class="muted">typing…</span>'
+            : '<span class="muted">sitting out</span>'
+          : ''
+      }</td></tr>`;
+  }).join('')}</tbody></table>`;
+}
+
+function scoreTable(rows, { session } = {}) {
+  return `<table>
+    <thead><tr><th>#</th><th>Player</th>${session ? '<th>Rounds</th><th>Wins</th>' : '<th>Answers</th><th>Time</th><th>Speed</th>'}<th style="text-align:right">Score</th></tr></thead>
+    <tbody>${rows.map((r) => `
+      <tr class="${r.rank === 1 ? 'win' : ''}">
+        <td class="rank ${r.rank === 1 ? 'r1' : ''}">${r.rank}${r.tied ? '=' : ''}</td>
+        <td><b>${esc(r.name)}</b> ${r.auto ? '<span class="pill auto">Auto</span>' : ''}</td>
+        ${session
+          ? `<td>${r.roundsPlayed}</td><td>${r.wins}</td>`
+          : `<td>${R.CATEGORY_KEYS.map((k) => {
+               const c = r.categories[k];
+               const cls = c.valid ? 'good' : 'bad';
+               const dup = c.sharedWith > 0 ? `<span class="pill dup">×${c.sharedWith + 1}</span>` : '';
+               return `<span class="${cls}">${esc(c.word || '—')}</span>${dup}`;
+             }).join(' · ')}</td>
+             <td>${r.timeTakenSeconds}s</td>
+             <td>${r.speedBonus ? '+' + r.speedBonus : '—'}</td>`}
+        <td style="text-align:right" class="score">${r.totalScore}</td>
+      </tr>`).join('')}
+    </tbody></table>`;
+}
+
+function render() {
+  document.getElementById('code').textContent = room.code;
+  document.getElementById('letter').textContent = room.letter;
+  const phaseEl = document.getElementById('phase');
+  phaseEl.textContent = room.closed ? 'CLOSED' : room.phase;
+  phaseEl.className = 'phase ' + room.phase;
+
+  document.getElementById('clock').textContent =
+    room.phase === 'racing' ? (room.round.deadline - room.now) + 's' : '—';
+
+  const np = document.getElementById('narration-panel');
+  if (room.__narration) {
+    np.style.display = 'block';
+    document.getElementById('narration').innerHTML = esc(room.__narration);
+  } else np.style.display = 'none';
+
+  renderScenarios();
+  renderPlayers();
+
+  document.getElementById('leaderboard').innerHTML = room.results
+    ? scoreTable(room.results.rows) +
+      `<p class="label" style="margin-top:10px">Round ended by: ${room.results.endedBy} · duplicate rule: ${room.results.duplicateRule}</p>`
+    : '<p class="muted">No round scored yet.</p>';
+
+  const standings = R.standingsTable(room);
+  document.getElementById('standings').innerHTML = standings.length
+    ? scoreTable(standings, { session: true })
+    : '<p class="muted">No rounds played yet.</p>';
+
+  document.getElementById('log').innerHTML = [...room.log].reverse()
+    .map((l) => `<div><b>${l.at}s</b> · ${esc(l.message)}</div>`).join('');
+
+  const { log, __narration, ...rest } = room;
+  document.getElementById('raw').textContent = JSON.stringify(rest, null, 2);
+
+  const host = room.players.find((p) => p.isHost && p.present);
+  document.getElementById('start-btn').disabled = room.phase !== 'lobby' || !host;
+  document.getElementById('judged-btn').disabled = room.phase !== 'judging';
+  document.getElementById('lobby-btn').disabled = room.phase !== 'reveal';
+  document.getElementById('step-btn').disabled =
+    scenario === null || stepIndex >= SCENARIOS[scenario].steps.length;
+}
+
+// --- wiring ----------------------------------------------------------------
+
+document.getElementById('scenarios').addEventListener('click', (e) => {
+  const card = e.target.closest('[data-scenario]');
+  if (card) selectScenario(Number(card.dataset.scenario));
+});
+document.getElementById('step-btn').onclick = runStep;
+document.getElementById('reset-btn').onclick = () => { scenario = null; reset(); };
+document.getElementById('add-btn').onclick = () => {
+  const input = document.getElementById('new-name');
+  const name = (input.value || '').trim() || 'Player ' + (room.players.length + 1);
+  R.join(room, 'free' + (room.players.length + 1), name);
+  input.value = '';
+  render();
+};
+document.getElementById('start-btn').onclick = () => {
+  const host = room.players.find((p) => p.isHost && p.present);
+  if (host) R.startRound(room, host.id);
+  render();
+};
+document.getElementById('judged-btn').onclick = () => { R.judged(room); render(); };
+document.getElementById('lobby-btn').onclick = () => { R.backToLobby(room); render(); };
+document.querySelectorAll('[data-tick]').forEach((b) => {
+  b.onclick = () => {
+    R.tick(room, Number(b.dataset.tick));
+    // Free-play convenience: racers who haven't submitted get a plausible answer.
+    if (room.phase === 'racing') {
+      room.round.racers.forEach((id, i) => {
+        if (!room.round.submissions[id] && Math.random() > 0.55) {
+          R.submit(room, id, [GOOD, GOOD2, LONG, PARTIAL][i % 4]);
+        }
+      });
+    }
+    render();
+  };
+});
+
+reset();
+</script>
+</body>
+</html>
