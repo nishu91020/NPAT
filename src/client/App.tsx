@@ -56,6 +56,18 @@ export default function App() {
   const [roomBusy, setRoomBusy] = useState<boolean>(false);
   /** When `room` was received, so the countdown runs off the server's clock. */
   const roomFetchedAt = useRef<number>(0);
+  /**
+   * Which seat this browser is on its way to, bumped every time it gives one up.
+   *
+   * ⚠️ Leaving a room does not cancel the requests already in flight for it — the
+   * poll in particular is fired every 1.5s and answers whenever the network gets
+   * round to it. Applying those replies unconditionally put the player back into
+   * the room they had just left: create a room, leave without playing, create
+   * another, and the in-flight poll for the first one landed a moment later and
+   * replaced it. The second room was made — the player just never got to see it,
+   * which reads as "I cannot create another room".
+   */
+  const roomEpoch = useRef<number>(0);
   // An invite link (/?room=CODE) prefills the join form.
   const [inviteCode] = useState<string>(() => {
     if (typeof window === 'undefined') return '';
@@ -123,6 +135,9 @@ export default function App() {
 
   const handleGoHome = () => {
     setSubmitError(null);
+    // Going home is leaving: a seat this browser is no longer looking at would
+    // otherwise be held until the server notices it has gone quiet.
+    releaseRoom();
     setView('landing');
   };
 
@@ -140,8 +155,46 @@ export default function App() {
     setRoomError(null);
   };
 
+  /**
+   * Gives up the seat this browser holds, if it holds one.
+   *
+   * Bumping the epoch first is what makes it a clean break: every request still
+   * in flight for that room is now stale, and its reply is dropped rather than
+   * applied over whatever the player does next.
+   */
+  const releaseRoom = () => {
+    roomEpoch.current += 1;
+    if (room) leaveRoom(room.code, player.id);
+    setRoom(null);
+  };
+
   const describeRoomError = (err: unknown): string =>
     err instanceof RoomRequestError ? err.message : 'Something went wrong. Try again.';
+
+  /**
+   * One room request, start to finish — and ignored entirely if the player has
+   * left that room by the time it answers. Returns the room, or null if the
+   * request failed or was abandoned.
+   */
+  const runRoom = async (
+    work: () => Promise<RoomView>,
+    { silent = false }: { silent?: boolean } = {}
+  ): Promise<RoomView | null> => {
+    const epoch = roomEpoch.current;
+    setRoomBusy(true);
+    try {
+      const next = await work();
+      if (epoch !== roomEpoch.current) return null;
+      applyRoom(next);
+      return next;
+    } catch (err) {
+      if (epoch !== roomEpoch.current) return null;
+      if (!silent) setRoomError(describeRoomError(err));
+      return null;
+    } finally {
+      setRoomBusy(false);
+    }
+  };
 
   const rememberName = (name: string) => {
     const identity = { ...player, name };
@@ -151,99 +204,54 @@ export default function App() {
   };
 
   const handleCreateRoom = async (name: string) => {
-    setRoomBusy(true);
+    const identity = rememberName(name);
+    // One room at a time: whatever seat this browser still holds is given up
+    // before a new one is taken, so an abandoned room cannot follow the player
+    // into the one they are creating.
+    releaseRoom();
     setRoomError(null);
-    try {
-      const identity = rememberName(name);
-      applyRoom(await createRoom(identity.id, name));
-      setView('room');
-    } catch (err) {
-      setRoomError(describeRoomError(err));
-    } finally {
-      setRoomBusy(false);
-    }
+
+    if (await runRoom(() => createRoom(identity.id, name))) setView('room');
   };
 
   const handleJoinRoom = async (name: string, code: string) => {
-    setRoomBusy(true);
+    const identity = rememberName(name);
+    releaseRoom();
     setRoomError(null);
-    try {
-      const identity = rememberName(name);
-      applyRoom(await joinRoom(code, identity.id, name));
-      setView('room');
-    } catch (err) {
-      setRoomError(describeRoomError(err));
-    } finally {
-      setRoomBusy(false);
-    }
+
+    if (await runRoom(() => joinRoom(code, identity.id, name))) setView('room');
   };
 
   const handleStartRoomRound = async () => {
     if (!room) return;
-    setRoomBusy(true);
-    try {
-      applyRoom(await startRoomRound(room.code, player.id));
-    } catch (err) {
-      setRoomError(describeRoomError(err));
-    } finally {
-      setRoomBusy(false);
-    }
+    await runRoom(() => startRoomRound(room.code, player.id));
   };
 
   const handleRoomSubmit = async (answers: UserAnswers, auto = false) => {
     if (!room) return;
-    setRoomBusy(true);
-    try {
-      applyRoom(await submitRoomAnswers(room.code, player.id, answers));
-    } catch (err) {
-      // An auto-submit races the server ending the round; losing that race is
-      // normal and the server has already taken the player's answers as blank.
-      // Telling them off for it would only be noise.
-      if (!auto) setRoomError(describeRoomError(err));
-    } finally {
-      setRoomBusy(false);
-    }
+    // An auto-submit races the server ending the round; losing that race is
+    // normal and the server has already taken the player's answers as blank.
+    // Telling them off for it would only be noise.
+    await runRoom(() => submitRoomAnswers(room.code, player.id, answers), { silent: auto });
   };
 
   const handleSetRoomRounds = async (totalRounds: number) => {
     if (!room) return;
-    setRoomBusy(true);
-    try {
-      applyRoom(await setRoomRounds(room.code, player.id, totalRounds));
-    } catch (err) {
-      setRoomError(describeRoomError(err));
-    } finally {
-      setRoomBusy(false);
-    }
+    await runRoom(() => setRoomRounds(room.code, player.id, totalRounds));
   };
 
   const handleNewRoomMatch = async () => {
     if (!room) return;
-    setRoomBusy(true);
-    try {
-      applyRoom(await newRoomMatch(room.code, player.id));
-    } catch (err) {
-      setRoomError(describeRoomError(err));
-    } finally {
-      setRoomBusy(false);
-    }
+    await runRoom(() => newRoomMatch(room.code, player.id));
   };
 
   const handleNextRoomRound = async () => {
     if (!room) return;
-    setRoomBusy(true);
-    try {
-      applyRoom(await nextRoomRound(room.code, player.id));
-    } catch (err) {
-      setRoomError(describeRoomError(err));
-    } finally {
-      setRoomBusy(false);
-    }
+    await runRoom(() => nextRoomRound(room.code, player.id));
   };
 
   const handleLeaveRoom = () => {
-    if (room) leaveRoom(room.code, player.id);
-    setRoom(null);
+    releaseRoom();
     setRoomError(null);
     setView('landing');
     // Drop the invite parameter so a refresh does not rejoin what you just left.
@@ -260,13 +268,16 @@ export default function App() {
   useEffect(() => {
     if (view !== 'room' || !room) return;
     const code = room.code;
+    const epoch = roomEpoch.current;
 
     const id = window.setInterval(async () => {
       try {
         const next = await fetchRoom(code, player.id);
+        if (epoch !== roomEpoch.current) return;
         roomFetchedAt.current = Date.now();
         setRoom(next);
       } catch (err) {
+        if (epoch !== roomEpoch.current) return;
         // A room that has closed under us is worth surfacing; a blip is not.
         if (err instanceof RoomRequestError && err.status === 404) {
           setRoomError('That room has closed.');

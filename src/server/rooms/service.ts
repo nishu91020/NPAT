@@ -85,6 +85,27 @@ export function createRoomService({
   }
 
   /**
+   * Frees a code whose room is dead, and says whether it is now free.
+   *
+   * ⚠️ Rooms expire lazily, on read — and nothing ever reads a room everybody has
+   * walked away from. A room that was created and never played therefore keeps
+   * its code for as long as the store lives, long after the room itself has
+   * expired. Creation is the one moment that cares, so creation is what clears
+   * them up: a code is only refused by a room that is still alive.
+   */
+  async function freeIfDead(code: string): Promise<boolean> {
+    const stored = await store.get(code);
+    if (!stored) return true;
+
+    const at = now();
+    reapAbsent(stored.room, at);
+    if (!isExpired(stored.room, at)) return false;
+
+    await store.delete(code);
+    return true;
+  }
+
+  /**
    * Load, change, save — redone from a fresh read when someone else saved first.
    *
    * `apply` must be safe to run more than once: it is handed a room that may have
@@ -219,6 +240,18 @@ export function createRoomService({
           return toView(room, playerId, at);
         } catch (err) {
           if (!(err instanceof RoomVersionConflict)) throw err;
+        }
+
+        // The code is taken. If it is held by a room that has already expired,
+        // take it over rather than walking past it — otherwise every room that
+        // was created and abandoned narrows the pool for good.
+        if (await freeIfDead(room.code)) {
+          try {
+            await store.create(room);
+            return toView(room, playerId, at);
+          } catch (err) {
+            if (!(err instanceof RoomVersionConflict)) throw err;
+          }
         }
       }
 

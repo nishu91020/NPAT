@@ -24,7 +24,7 @@ import {
   toView,
   touch,
 } from './roomState';
-import { ROOM_RULES, RoomVersionConflict } from './types';
+import { ROOM_RULES, RoomVersionConflict, type Room } from './types';
 import type { Judge } from '../referee';
 
 const CHALLENGE: BonusChallenge = {
@@ -562,6 +562,74 @@ describe('a room shared between replicas', () => {
     await store.create(createRoom('TAKEN', T0));
 
     await expect(store.create(createRoom('TAKEN', T0))).rejects.toThrow(RoomVersionConflict);
+  });
+
+  /**
+   * ⚠️ A room that was created and never played is the one nobody ever reads
+   * again, so lazy expiry never runs on it and its code would be held for the
+   * life of the store.
+   */
+  it('takes over a code held by a room that has already expired', async () => {
+    const store = createMemoryRoomStore();
+    let taken: string | null = null;
+
+    const squatted = {
+      ...store,
+      async create(room: Room) {
+        if (taken === null) {
+          // Somebody made this room, walked away, and never came back.
+          taken = room.code;
+          await store.create(createRoom(room.code, T0));
+          throw new RoomVersionConflict(room.code);
+        }
+        return store.create(room);
+      },
+    };
+
+    const rooms = createRoomService({
+      store: squatted,
+      judge: stubJudge,
+      nextPuzzle: async () => ({ letter: 'S', bonusChallenge: CHALLENGE }),
+      now: () => sec(ROOM_RULES.emptyGraceSeconds + 60),
+    });
+
+    const view = await rooms.create('p1', 'Ana');
+
+    expect(view.code).toBe(taken);
+    expect(view.players.map((p) => p.name)).toEqual(['Ana']);
+    expect((await store.get(view.code))!.room.players).toHaveLength(1);
+  });
+
+  it('leaves a live room alone and takes a different code instead', async () => {
+    const store = createMemoryRoomStore();
+    let squatted: string | null = null;
+
+    const colliding = {
+      ...store,
+      async create(room: Room) {
+        if (squatted === null) {
+          // Somebody is sitting in a room under this code right now.
+          squatted = room.code;
+          const live = createRoom(room.code, T0);
+          join(live, 'p1', 'Ana', T0);
+          await store.create(live);
+          throw new RoomVersionConflict(room.code);
+        }
+        return store.create(room);
+      },
+    };
+
+    const rooms = createRoomService({
+      store: colliding,
+      judge: stubJudge,
+      nextPuzzle: async () => ({ letter: 'S', bonusChallenge: CHALLENGE }),
+      now: () => T0,
+    });
+
+    const view = await rooms.create('p2', 'Ben');
+
+    expect(view.code).not.toBe(squatted);
+    expect((await store.get(squatted!))!.room.players.map((p) => p.name)).toEqual(['Ana']);
   });
 
   // ⚠️ The bug this whole design exists to prevent: one replica reads, another
