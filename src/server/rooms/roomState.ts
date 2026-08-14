@@ -5,6 +5,7 @@ import type {
   RoomView,
   UserAnswers,
 } from '../../shared/contract';
+import { ROOM_ROUND_CHOICES } from '../../shared/contract';
 import { ROOM_RULES, type Room, type RoomPlayerState } from './types';
 
 /**
@@ -41,6 +42,7 @@ export function createRoom(code: string, now: number): Room {
     results: null,
     standings: {},
     roundsPlayed: 0,
+    totalRounds: ROOM_RULES.defaultRounds,
     createdAt: now,
     emptySince: now,
     judging: false,
@@ -159,6 +161,54 @@ export function touch(room: Room, playerId: string, now: number): Room {
   return room;
 }
 
+/**
+ * Whether the host may still choose the match length.
+ *
+ * Only before the first round: changing the finish line mid-match would move it
+ * for players who have already raced, so the number is settled up front.
+ */
+export function canSetRounds(room: Room): boolean {
+  return room.phase === 'lobby' && room.roundsPlayed === 0;
+}
+
+/** True once the final round of the match has been scored and shown. */
+export function isMatchComplete(room: Room): boolean {
+  if (room.phase === 'racing' || room.phase === 'judging') return false;
+  return room.roundsPlayed >= room.totalRounds;
+}
+
+export function setTotalRounds(room: Room, playerId: string, totalRounds: number): Room {
+  const player = findPlayer(room, playerId);
+  if (!player || !player.isHost) throw new RoomError('Only the host can set the rounds.', 403);
+  if (!canSetRounds(room)) {
+    throw new RoomError('The match has already started.', 409);
+  }
+  // The number arrives from a browser, so it is checked against the same list the
+  // client is offered rather than trusted.
+  if (!(ROOM_ROUND_CHOICES as readonly number[]).includes(totalRounds)) {
+    throw new RoomError('That is not a match length you can pick.', 400);
+  }
+
+  room.totalRounds = totalRounds;
+  return room;
+}
+
+/** Clears the scoreboard and starts a fresh match, keeping everyone in their seats. */
+export function newMatch(room: Room, playerId: string): Room {
+  const player = findPlayer(room, playerId);
+  if (!player || !player.isHost) throw new RoomError('Only the host can start a match.', 403);
+  if (room.phase === 'racing' || room.phase === 'judging') {
+    throw new RoomError('A round is still running.', 409);
+  }
+
+  room.phase = 'lobby';
+  room.round = null;
+  room.results = null;
+  room.standings = {};
+  room.roundsPlayed = 0;
+  return room;
+}
+
 export function startRound(
   room: Room,
   playerId: string,
@@ -169,6 +219,9 @@ export function startRound(
   const player = findPlayer(room, playerId);
   if (!player || !player.isHost) throw new RoomError('Only the host can start a round.', 403);
   if (room.phase !== 'lobby') throw new RoomError('A round is already running.', 409);
+  if (room.roundsPlayed >= room.totalRounds) {
+    throw new RoomError('This match is over. Start a new match to keep playing.', 409);
+  }
 
   const racers = presentPlayers(room).map((p) => p.id);
   if (racers.length === 0) throw new RoomError('Nobody is in the room.', 409);
@@ -202,10 +255,21 @@ export function submit(
   // Idempotent: a retry, a reconnect or a double-click must score once.
   if (room.round.submissions[playerId]) return room;
 
+  // A submission that lands after the deadline is a timeout auto-submit arriving
+  // inside the grace window. The answers still count — they were typed in time —
+  // but the clock is capped at the round length so no late arrival wins the race.
+  // Past the window it is refused: rooms only advance when someone reads them, so
+  // without this a submission arriving minutes later would still be taken.
+  const lateBy = now - room.round.deadline;
+  if (lateBy > ROOM_RULES.submitGraceSeconds * 1000) {
+    throw new RoomError('The round is over.', 409);
+  }
+  const elapsed = Math.max(1, Math.round((now - room.round.startedAt) / 1000));
+
   room.round.submissions[playerId] = {
     answers,
-    timeTakenSeconds: Math.max(1, Math.round((now - room.round.startedAt) / 1000)),
-    auto: false,
+    timeTakenSeconds: lateBy >= 0 ? ROOM_RULES.roundSeconds : elapsed,
+    auto: lateBy >= 0,
   };
 
   return maybeEndRound(room, now);
@@ -221,23 +285,41 @@ export function maybeEndRound(room: Room, now: number): Room {
   });
 
   if (outstanding.length === 0) return endRound(room, 'all-submitted', now);
-  if (now >= room.round.deadline) return endRound(room, 'clock', now);
+  // Held open past the deadline so the auto-submits fired by every client at zero
+  // have time to arrive; without this the first poll after the deadline would
+  // score them blank.
+  if (now >= room.round.deadline + ROOM_RULES.submitGraceSeconds * 1000) {
+    return endRound(room, 'clock', now);
+  }
   return room;
 }
 
 function endRound(room: Room, endedBy: 'all-submitted' | 'clock', now: number): Room {
   if (!room.round) return room;
-  room.round.endedBy = endedBy;
 
-  // Anyone who never submitted is taken as they stand rather than dropped.
+  // Anyone who never submitted is taken as they stand rather than dropped. Their
+  // time is capped at the round length: the round ends when a poll notices the
+  // deadline has passed, which can be well after the deadline itself.
+  let anyAuto = false;
   for (const id of room.round.racers) {
     if (room.round.submissions[id]) continue;
+    anyAuto = true;
     room.round.submissions[id] = {
       answers: { name: '', place: '', animal: '', thing: '' },
-      timeTakenSeconds: Math.max(1, Math.round((now - room.round.startedAt) / 1000)),
+      timeTakenSeconds: Math.min(
+        ROOM_RULES.roundSeconds,
+        Math.max(1, Math.round((now - room.round.startedAt) / 1000))
+      ),
       auto: true,
     };
   }
+
+  // ⚠️ "Everyone finished" must mean everyone actually answered in time. A round
+  // can also end because the last player still owing an answer went quiet, or
+  // because every client auto-submitted on the buzzer — the room is no longer
+  // waiting on anyone, but telling the survivors everyone finished is a lie.
+  const anyLate = anyAuto || room.round.racers.some((id) => room.round!.submissions[id]?.auto);
+  room.round.endedBy = anyLate ? 'clock' : endedBy;
 
   room.phase = 'judging';
   return room;
@@ -247,6 +329,9 @@ export function backToLobby(room: Room, playerId: string): Room {
   const player = findPlayer(room, playerId);
   if (!player || !player.isHost) throw new RoomError('Only the host can start a round.', 403);
   if (room.phase !== 'reveal') throw new RoomError('The round is not finished.', 409);
+  if (isMatchComplete(room)) {
+    throw new RoomError('This match is over. Start a new match to keep playing.', 409);
+  }
 
   room.phase = 'lobby';
   room.round = null;
@@ -345,6 +430,9 @@ export function toView(room: Room, playerId: string, now: number): RoomView {
     results: room.phase === 'reveal' ? room.results : null,
     standings: standingsOf(room),
     roundsPlayed: room.roundsPlayed,
+    totalRounds: room.totalRounds,
+    canSetRounds: canSetRounds(room),
+    matchComplete: isMatchComplete(room),
     youId: playerId,
     youAreHost: Boolean(you?.isHost),
   };

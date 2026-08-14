@@ -59,6 +59,8 @@ export interface Room {
   results: RoomResults | null;
   standings: Record<string, RoomStandingState>;
   roundsPlayed: number;
+  /** How many rounds this match runs for. Host-set, and locked once round one starts. */
+  totalRounds: number;
   createdAt: number;
   /** When the room became empty, or null while someone is here. */
   emptySince: number | null;
@@ -84,18 +86,31 @@ export interface RoomStore {
 
 export interface RoomRules {
   roundSeconds: number;
+  /**
+   * How long after the deadline a submission is still taken.
+   *
+   * Every client auto-submits when its countdown hits zero, and that request has
+   * to cross the network. Without a grace window the first poll to arrive after
+   * the deadline would end the round and throw those answers away — the player
+   * would be scored blank for a round they had actually filled in.
+   */
+  submitGraceSeconds: number;
   maxPlayers: number;
   /** How long an empty room survives — a refresh looks exactly like leaving. */
   emptyGraceSeconds: number;
   /** How long since a poll before a player is treated as gone. */
   presenceTimeoutSeconds: number;
+  /** The match length used until the host picks one. */
+  defaultRounds: number;
 }
 
 export const ROOM_RULES: RoomRules = {
   roundSeconds: 60,
+  submitGraceSeconds: 3,
   maxPlayers: 8,
   emptyGraceSeconds: 120,
   presenceTimeoutSeconds: 20,
+  defaultRounds: 3,
 };
 
 export type ScoredRow = RoomScoreRow;

@@ -161,6 +161,14 @@ export interface RoomResults {
   endedBy: 'all-submitted' | 'clock';
 }
 
+/**
+ * The match lengths a host is offered.
+ *
+ * On the wire because both tiers need it: the client renders the choice and the
+ * server refuses anything outside it, rather than trusting a number from a browser.
+ */
+export const ROOM_ROUND_CHOICES = [1, 3, 5, 10] as const;
+
 /** Everything one player needs to render the room. The only room shape on the wire. */
 export interface RoomView {
   code: string;
@@ -170,6 +178,12 @@ export interface RoomView {
   results: RoomResults | null;
   standings: RoomStandingRow[];
   roundsPlayed: number;
+  /** How long this match runs for. The host sets it before the first round. */
+  totalRounds: number;
+  /** True while the host can still change `totalRounds` — before round one. */
+  canSetRounds: boolean;
+  /** True once the final round of the match has been revealed. */
+  matchComplete: boolean;
   /** Who the caller is, so the client never has to guess which player is theirs. */
   youId: string;
   youAreHost: boolean;

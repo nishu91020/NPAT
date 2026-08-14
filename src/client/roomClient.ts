@@ -75,6 +75,19 @@ export function nextRoomRound(code: string, playerId: string): Promise<RoomView>
   return post<RoomView>(`/api/rooms/${encodeURIComponent(code)}/next`, { playerId });
 }
 
+/** Host only, and only before the first round — the server enforces both. */
+export function setRoomRounds(
+  code: string,
+  playerId: string,
+  totalRounds: number
+): Promise<RoomView> {
+  return post<RoomView>(`/api/rooms/${encodeURIComponent(code)}/rounds`, { playerId, totalRounds });
+}
+
+export function newRoomMatch(code: string, playerId: string): Promise<RoomView> {
+  return post<RoomView>(`/api/rooms/${encodeURIComponent(code)}/new-match`, { playerId });
+}
+
 export function leaveRoom(code: string, playerId: string): void {
   // Best effort on the way out — the room also drops players who stop polling,
   // so nothing depends on this arriving.
@@ -94,8 +107,16 @@ export function leaveRoom(code: string, playerId: string): void {
   }).catch(() => undefined);
 }
 
-/** Seconds left in the round, measured against the server's clock, never the browser's. */
+/**
+ * Seconds left in the round, measured against the server's clock, never the browser's.
+ *
+ * Rounded **up** on purpose: zero is what makes every client auto-submit, so it
+ * must not arrive before the deadline it is counting down to. Rounding to nearest
+ * showed 0 up to half a second early, and the submission then landed as an
+ * ordinary on-time answer — the round claimed everyone had finished when in fact
+ * the clock had run out.
+ */
 export function secondsLeft(round: { endsAt: string; serverNow: string }, sinceMs: number): number {
   const remainingAtFetch = new Date(round.endsAt).getTime() - new Date(round.serverNow).getTime();
-  return Math.max(0, Math.round((remainingAtFetch - sinceMs) / 1000));
+  return Math.max(0, Math.ceil((remainingAtFetch - sinceMs) / 1000));
 }

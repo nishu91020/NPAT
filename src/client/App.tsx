@@ -16,7 +16,9 @@ import {
   fetchRoom,
   joinRoom,
   leaveRoom,
+  newRoomMatch,
   nextRoomRound,
+  setRoomRounds,
   startRoomRound,
   submitRoomAnswers,
 } from './roomClient';
@@ -188,11 +190,38 @@ export default function App() {
     }
   };
 
-  const handleRoomSubmit = async (answers: UserAnswers) => {
+  const handleRoomSubmit = async (answers: UserAnswers, auto = false) => {
     if (!room) return;
     setRoomBusy(true);
     try {
       applyRoom(await submitRoomAnswers(room.code, player.id, answers));
+    } catch (err) {
+      // An auto-submit races the server ending the round; losing that race is
+      // normal and the server has already taken the player's answers as blank.
+      // Telling them off for it would only be noise.
+      if (!auto) setRoomError(describeRoomError(err));
+    } finally {
+      setRoomBusy(false);
+    }
+  };
+
+  const handleSetRoomRounds = async (totalRounds: number) => {
+    if (!room) return;
+    setRoomBusy(true);
+    try {
+      applyRoom(await setRoomRounds(room.code, player.id, totalRounds));
+    } catch (err) {
+      setRoomError(describeRoomError(err));
+    } finally {
+      setRoomBusy(false);
+    }
+  };
+
+  const handleNewRoomMatch = async () => {
+    if (!room) return;
+    setRoomBusy(true);
+    try {
+      applyRoom(await newRoomMatch(room.code, player.id));
     } catch (err) {
       setRoomError(describeRoomError(err));
     } finally {
@@ -371,6 +400,8 @@ export default function App() {
             onStartRound={handleStartRoomRound}
             onSubmit={handleRoomSubmit}
             onNextRound={handleNextRoomRound}
+            onSetRounds={handleSetRoomRounds}
+            onNewMatch={handleNewRoomMatch}
             onLeave={handleLeaveRoom}
           />
         ) : (

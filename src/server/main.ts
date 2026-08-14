@@ -284,6 +284,25 @@ app.post('/api/rooms/:code/start', async (req, res) => {
   });
 });
 
+// How many rounds the match runs for. Host only, and only before round one.
+app.post('/api/rooms/:code/rounds', async (req, res) => {
+  await handleRoom(res, async () => {
+    const playerId = typeof req.body?.playerId === 'string' ? req.body.playerId : '';
+    const totalRounds = Number(req.body?.totalRounds);
+    if (!playerId) throw new RoomError('Missing player id.', 400);
+    if (!Number.isInteger(totalRounds)) throw new RoomError('Missing round count.', 400);
+    return rooms.setRounds(req.params.code, playerId, totalRounds);
+  });
+});
+
+app.post('/api/rooms/:code/new-match', async (req, res) => {
+  await handleRoom(res, async () => {
+    const playerId = typeof req.body?.playerId === 'string' ? req.body.playerId : '';
+    if (!playerId) throw new RoomError('Missing player id.', 400);
+    return rooms.newMatch(req.params.code, playerId);
+  });
+});
+
 app.post('/api/rooms/:code/submit', async (req, res) => {
   await handleRoom(res, async () => {
     const playerId = typeof req.body?.playerId === 'string' ? req.body.playerId : '';

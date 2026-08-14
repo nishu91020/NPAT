@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { CategoryKey, RoomView, UserAnswers } from '../../shared/contract';
+import { ROOM_ROUND_CHOICES } from '../../shared/contract';
 import { CATEGORIES } from '../categories';
 import { secondsLeft } from '../roomClient';
 import { playClickSound, playTickSound } from '../audio';
@@ -10,6 +11,7 @@ import {
   Crown,
   Loader2,
   Play,
+  RotateCcw,
   Send,
   Sparkles,
   Trophy,
@@ -23,8 +25,11 @@ interface RoomScreenProps {
   error: string | null;
   isBusy: boolean;
   onStartRound: () => void;
-  onSubmit: (answers: UserAnswers) => void;
+  /** `auto` marks the submission the clock made, not the player. */
+  onSubmit: (answers: UserAnswers, auto?: boolean) => void;
   onNextRound: () => void;
+  onSetRounds: (totalRounds: number) => void;
+  onNewMatch: () => void;
   onLeave: () => void;
 }
 
@@ -38,6 +43,8 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
   onStartRound,
   onSubmit,
   onNextRound,
+  onSetRounds,
+  onNewMatch,
   onLeave,
 }) => {
   const [answers, setAnswers] = useState<UserAnswers>(EMPTY_ANSWERS);
@@ -71,6 +78,29 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
       playTickSound();
     }
   }, [timeLeft, room.phase, youAreRacing, youHaveSubmitted]);
+
+  // Read by the auto-submit below, so it always sends the latest keystrokes
+  // without re-arming itself on every one of them.
+  const answersRef = useRef(answers);
+  answersRef.current = answers;
+
+  /**
+   * ⚠️ The clock submits for you.
+   *
+   * Whatever is typed when the countdown reaches zero is sent as it stands, so a
+   * player who ran out of time still scores what they wrote. The server does keep
+   * a fallback for anyone who has gone, but that one scores blank — this is what
+   * makes a timeout keep the answers. Guarded per round, because the countdown
+   * re-renders once a second and this must fire exactly once.
+   */
+  const autoSubmittedRound = useRef(0);
+  useEffect(() => {
+    if (room.phase !== 'racing' || !youAreRacing || youHaveSubmitted) return;
+    if (timeLeft > 0 || autoSubmittedRound.current === roundNumber) return;
+
+    autoSubmittedRound.current = roundNumber;
+    onSubmit(answersRef.current, true);
+  }, [timeLeft, room.phase, youAreRacing, youHaveSubmitted, roundNumber, onSubmit]);
 
   const targetLetter = (room.round?.letter ?? '').toUpperCase();
 
@@ -176,7 +206,9 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
         <div className="bg-white border-2 border-slate-200 p-6 sm:p-10 text-center">
           <Sparkles className="w-8 h-8 text-indigo-600 mx-auto" />
           <h3 className="mt-4 text-2xl font-black uppercase tracking-tight text-slate-900">
-            {room.roundsPlayed === 0 ? 'Waiting to start' : `Round ${room.roundsPlayed} complete`}
+            {room.roundsPlayed === 0
+              ? 'Waiting to start'
+              : `Round ${room.roundsPlayed} of ${room.totalRounds} complete`}
           </h3>
           <p className="mt-2 text-sm text-slate-600 font-medium">
             {room.youAreHost
@@ -184,19 +216,62 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
               : 'Waiting for the host to start the next round.'}
           </p>
 
+          {/* The match length. Settled before round one, because moving the finish
+              line mid-match would move it for people who have already raced. */}
+          <div className="mt-6 inline-block border-l-4 border-indigo-600 pl-4 text-left">
+            <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">
+              Match length
+            </p>
+            {room.youAreHost && room.canSetRounds ? (
+              <div id="room-rounds-picker" className="mt-2 flex flex-wrap gap-2">
+                {ROOM_ROUND_CHOICES.map((choice) => (
+                  <button
+                    key={choice}
+                    id={`room-rounds-${choice}`}
+                    type="button"
+                    aria-pressed={room.totalRounds === choice}
+                    onClick={() => {
+                      playClickSound();
+                      onSetRounds(choice);
+                    }}
+                    disabled={isBusy}
+                    className={`min-h-[44px] px-4 py-2 border-2 font-black text-[10px] uppercase tracking-widest transition-colors disabled:opacity-50 ${
+                      room.totalRounds === choice
+                        ? 'border-indigo-600 bg-indigo-600 text-white'
+                        : 'border-slate-200 bg-white text-slate-700 hover:border-indigo-600'
+                    }`}
+                  >
+                    {choice} round{choice === 1 ? '' : 's'}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p
+                id="room-rounds-fixed"
+                className="mt-1 text-lg font-black uppercase tracking-tight text-slate-900"
+              >
+                {room.roundsPlayed} of {room.totalRounds} played
+              </p>
+            )}
+          </div>
+
           {room.youAreHost && (
-            <button
-              id="room-start-btn"
-              onClick={() => {
-                playClickSound();
-                onStartRound();
-              }}
-              disabled={isBusy}
-              className="mt-6 min-h-[56px] px-8 py-4 bg-slate-900 hover:bg-slate-800 text-white font-black text-base uppercase tracking-widest shadow-[6px_6px_0px_0px_rgba(0,0,0,0.1)] hover:translate-y-[-2px] active:translate-y-[2px] transition-all inline-flex items-center gap-3 disabled:opacity-50"
-            >
-              {isBusy ? <Loader2 className="w-5 h-5 animate-spin" /> : <Play className="w-5 h-5" />}
-              {room.roundsPlayed === 0 ? 'Start round' : 'Next round'}
-            </button>
+            <div>
+              <button
+                id="room-start-btn"
+                onClick={() => {
+                  playClickSound();
+                  onStartRound();
+                }}
+                disabled={isBusy}
+                className="mt-6 min-h-[56px] px-8 py-4 bg-slate-900 hover:bg-slate-800 text-white font-black text-base uppercase tracking-widest shadow-[6px_6px_0px_0px_rgba(0,0,0,0.1)] hover:translate-y-[-2px] active:translate-y-[2px] transition-all inline-flex items-center gap-3 disabled:opacity-50"
+              >
+                {isBusy ? <Loader2 className="w-5 h-5 animate-spin" /> : <Play className="w-5 h-5" />}
+                {room.roundsPlayed === 0
+                  ? `Start round 1 of ${room.totalRounds}`
+                  : `Start round ${room.roundsPlayed + 1} of ${room.totalRounds}`}
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -211,7 +286,7 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
               </div>
               <div>
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                  Round {room.round.number}
+                  Round {room.round.number} of {room.totalRounds}
                 </p>
                 <p className="text-sm font-black text-slate-900 uppercase tracking-tight">
                   {room.round.bonusChallenge.title}
@@ -247,6 +322,16 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
               </p>
               <p className="mt-1 text-sm text-slate-500 font-medium">
                 Waiting for everyone else — or for the clock.
+              </p>
+            </div>
+          ) : timeLeft <= 0 ? (
+            <div className="text-center py-8">
+              <Loader2 className="w-10 h-10 text-indigo-600 mx-auto animate-spin" />
+              <p className="mt-3 text-lg font-black uppercase tracking-tight text-slate-900">
+                Time — sending your answers
+              </p>
+              <p className="mt-1 text-sm text-slate-500 font-medium">
+                Whatever you had typed goes in as it stands.
               </p>
             </div>
           ) : (
@@ -396,8 +481,8 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
           {room.standings.length > 1 && (
             <div className="bg-white border-2 border-slate-200 p-4 sm:p-6">
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">
-                Session standings — {room.roundsPlayed} round
-                {room.roundsPlayed === 1 ? '' : 's'}
+                {room.matchComplete ? 'Final standings' : 'Session standings'} — round{' '}
+                {room.roundsPlayed} of {room.totalRounds}
               </p>
               <table className="w-full text-sm">
                 <tbody>
@@ -423,21 +508,48 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
             </div>
           )}
 
+          {room.matchComplete && (
+            <div
+              id="room-match-complete"
+              className="bg-white border-2 border-amber-300 bg-amber-50 p-6 text-center"
+            >
+              <Trophy className="w-8 h-8 text-amber-500 mx-auto" />
+              <h3 className="mt-3 text-2xl font-black uppercase tracking-tight text-slate-900">
+                Match complete
+              </h3>
+              <p className="mt-1 text-sm text-slate-600 font-medium">
+                {room.totalRounds} round{room.totalRounds === 1 ? '' : 's'} played
+                {room.standings[0] ? ` — ${room.standings[0].name} takes it.` : '.'}
+              </p>
+            </div>
+          )}
+
           {room.youAreHost ? (
             <button
-              id="room-next-round-btn"
+              id={room.matchComplete ? 'room-new-match-btn' : 'room-next-round-btn'}
               onClick={() => {
                 playClickSound();
-                onNextRound();
+                if (room.matchComplete) onNewMatch();
+                else onNextRound();
               }}
               disabled={isBusy}
               className="w-full min-h-[56px] py-4 bg-slate-900 hover:bg-slate-800 text-white font-black text-base uppercase tracking-widest shadow-[6px_6px_0px_0px_rgba(0,0,0,0.1)] transition-all flex items-center justify-center gap-3 disabled:opacity-50"
             >
-              <Play className="w-5 h-5" /> Back to the lobby
+              {room.matchComplete ? (
+                <>
+                  <RotateCcw className="w-5 h-5" /> New match
+                </>
+              ) : (
+                <>
+                  <Play className="w-5 h-5" /> Back to the lobby
+                </>
+              )}
             </button>
           ) : (
             <p className="text-center text-xs font-black uppercase tracking-widest text-slate-400">
-              Waiting for the host to continue
+              {room.matchComplete
+                ? 'Waiting for the host to start a new match'
+                : 'Waiting for the host to continue'}
             </p>
           )}
         </div>

@@ -3,13 +3,20 @@ import type { BonusChallenge, UserAnswers } from '../../shared/contract';
 import { createRoomService } from './service';
 import {
   RoomError,
+  backToLobby,
+  canSetRounds,
   createRoom,
   generateRoomCode,
+  isMatchComplete,
   join,
   leave,
   maybeEndRound,
+  newMatch,
   rankRows,
   reapAbsent,
+  recordResults,
+  setTotalRounds,
+  standingsOf,
   startRound,
   submit,
   isExpired,
@@ -64,11 +71,48 @@ describe('the round ends when everyone has submitted or the timer expires', () =
     startRound(room, 'p1', 'S', CHALLENGE, T0);
     submit(room, 'p1', GOOD, sec(12));
 
-    maybeEndRound(room, sec(ROOM_RULES.roundSeconds + 1));
+    maybeEndRound(room, sec(ROOM_RULES.roundSeconds + ROOM_RULES.submitGraceSeconds + 1));
 
     expect(room.phase).toBe('judging');
     expect(room.round?.endedBy).toBe('clock');
     expect(room.round?.submissions.p2.auto).toBe(true);
+  });
+
+  it('holds the round open past the deadline so a timeout auto-submit still lands', () => {
+    const room = roomWith(['Ana', 'Ben']);
+    startRound(room, 'p1', 'S', CHALLENGE, T0);
+    submit(room, 'p1', GOOD, sec(12));
+
+    // A poll arriving the instant the clock hits zero must not throw away the
+    // answers every client is auto-submitting at exactly that moment.
+    maybeEndRound(room, sec(ROOM_RULES.roundSeconds));
+    expect(room.phase).toBe('racing');
+
+    submit(room, 'p2', GOOD, sec(ROOM_RULES.roundSeconds + 1));
+
+    expect(room.round?.submissions.p2.answers).toEqual(GOOD);
+    expect(room.round?.submissions.p2.auto).toBe(true);
+    expect(room.round?.submissions.p2.timeTakenSeconds).toBe(ROOM_RULES.roundSeconds);
+    expect(room.phase).toBe('judging');
+  });
+
+  it('does not claim everyone finished when the clock submitted for someone', () => {
+    const room = roomWith(['Ana', 'Ben']);
+    startRound(room, 'p1', 'S', CHALLENGE, T0);
+    submit(room, 'p1', GOOD, sec(12));
+    submit(room, 'p2', GOOD, sec(ROOM_RULES.roundSeconds + 1));
+
+    expect(room.round?.endedBy).toBe('clock');
+  });
+
+  it('refuses a submission that arrives after the grace window has passed', () => {
+    const room = roomWith(['Ana', 'Ben']);
+    startRound(room, 'p1', 'S', CHALLENGE, T0);
+
+    expect(() =>
+      submit(room, 'p1', GOOD, sec(ROOM_RULES.roundSeconds + ROOM_RULES.submitGraceSeconds + 1))
+    ).toThrow(/over/i);
+    expect(room.round?.submissions.p1).toBeUndefined();
   });
 
   it('does not wait for a player who has gone', () => {
@@ -80,6 +124,31 @@ describe('the round ends when everyone has submitted or the timer expires', () =
     maybeEndRound(room, sec(7));
 
     expect(room.phase).toBe('judging');
+  });
+
+  it('does not claim everyone finished when someone merely went quiet', () => {
+    const room = roomWith(['Ana', 'Ben']);
+    startRound(room, 'p1', 'S', CHALLENGE, T0);
+    submit(room, 'p1', GOOD, sec(5));
+
+    // Ben never answers and stops polling — the room stops waiting on him, but
+    // telling Ana that everyone finished would be a lie.
+    leave(room, 'p2', sec(6));
+    maybeEndRound(room, sec(7));
+
+    expect(room.round?.endedBy).toBe('clock');
+    expect(room.round?.submissions.p2.auto).toBe(true);
+  });
+
+  it('never reports a time longer than the round, however late the poll arrives', () => {
+    const room = roomWith(['Ana', 'Ben']);
+    startRound(room, 'p1', 'S', CHALLENGE, T0);
+    submit(room, 'p1', GOOD, sec(5));
+
+    // Nobody looks at the room until well after the deadline.
+    maybeEndRound(room, sec(ROOM_RULES.roundSeconds + 45));
+
+    expect(room.round?.submissions.p2.timeTakenSeconds).toBe(ROOM_RULES.roundSeconds);
   });
 });
 
@@ -196,6 +265,76 @@ describe('presence and the room lifecycle', () => {
   });
 });
 
+describe('the match length', () => {
+  it('is the host default until the host picks another', () => {
+    const room = roomWith(['Ana']);
+    expect(room.totalRounds).toBe(ROOM_RULES.defaultRounds);
+
+    setTotalRounds(room, 'p1', 5);
+    expect(room.totalRounds).toBe(5);
+  });
+
+  it('is only the host to set', () => {
+    const room = roomWith(['Ana', 'Ben']);
+    expect(() => setTotalRounds(room, 'p2', 5)).toThrow(/host/i);
+  });
+
+  it('refuses a length that was never offered', () => {
+    const room = roomWith(['Ana']);
+    expect(() => setTotalRounds(room, 'p1', 7)).toThrow(RoomError);
+    expect(() => setTotalRounds(room, 'p1', 0)).toThrow(RoomError);
+  });
+
+  it('is locked once the first round has started, so the finish line cannot move', () => {
+    const room = roomWith(['Ana']);
+    startRound(room, 'p1', 'S', CHALLENGE, T0);
+    expect(canSetRounds(room)).toBe(false);
+    expect(() => setTotalRounds(room, 'p1', 10)).toThrow(/started/i);
+  });
+
+  it('ends the match after the last round, rather than offering another', () => {
+    const room = roomWith(['Ana']);
+    setTotalRounds(room, 'p1', 1);
+
+    startRound(room, 'p1', 'S', CHALLENGE, T0);
+    submit(room, 'p1', GOOD, sec(5));
+    room.phase = 'reveal'; // Judging is the service's job, not the state machine's.
+
+    expect(isMatchComplete(room)).toBe(true);
+    expect(toView(room, 'p1', sec(6)).matchComplete).toBe(true);
+    expect(() => backToLobby(room, 'p1')).toThrow(/match is over/i);
+  });
+
+  it('starts a new match with a clean scoreboard and the length open again', () => {
+    const room = roomWith(['Ana']);
+    setTotalRounds(room, 'p1', 1);
+    startRound(room, 'p1', 'S', CHALLENGE, T0);
+    submit(room, 'p1', GOOD, sec(5));
+    room.phase = 'reveal';
+    recordResults(room, [
+      {
+        playerId: 'p1',
+        name: 'Ana',
+        rank: 1,
+        tied: false,
+        totalScore: 40,
+        speedBonus: 0,
+        timeTakenSeconds: 5,
+        auto: false,
+        answers: GOOD,
+        categories: {} as never,
+      },
+    ]);
+
+    newMatch(room, 'p1');
+
+    expect(room.phase).toBe('lobby');
+    expect(room.roundsPlayed).toBe(0);
+    expect(standingsOf(room)).toEqual([]);
+    expect(canSetRounds(room)).toBe(true);
+  });
+});
+
 describe('the view a player is given', () => {
   it('never exposes another player answers while the round is running', () => {
     const room = roomWith(['Ana', 'Ben']);
@@ -302,5 +441,28 @@ describe('the room service end to end', () => {
     const { code } = await rooms.create('a', 'Ana');
     await rooms.join(code, 'b', 'Ben');
     await expect(rooms.start(code, 'b')).rejects.toThrow(/host/i);
+  });
+
+  it('plays exactly the number of rounds the host asked for, then closes the match', async () => {
+    const rooms = service();
+    const { code } = await rooms.create('a', 'Ana');
+
+    const set = await rooms.setRounds(code, 'a', 1);
+    expect(set.totalRounds).toBe(1);
+    expect(set.canSetRounds).toBe(true);
+
+    await rooms.start(code, 'a');
+    const done = await rooms.submit(code, 'a', GOOD);
+
+    expect(done.phase).toBe('reveal');
+    expect(done.matchComplete).toBe(true);
+    await expect(rooms.next(code, 'a')).rejects.toThrow(/match is over/i);
+
+    const fresh = await rooms.newMatch(code, 'a');
+    expect(fresh.phase).toBe('lobby');
+    expect(fresh.roundsPlayed).toBe(0);
+    expect(fresh.matchComplete).toBe(false);
+    expect(fresh.canSetRounds).toBe(true);
+    expect(fresh.standings).toEqual([]);
   });
 });

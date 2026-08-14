@@ -15,9 +15,11 @@ import {
   isExpired,
   join,
   maybeEndRound,
+  newMatch,
   rankRows,
   reapAbsent,
   recordResults,
+  setTotalRounds,
   startRound,
   submit,
   toView,
@@ -160,6 +162,24 @@ export function createRoomService({
 
       const puzzle = await nextPuzzle(room.round?.letter);
       startRound(room, playerId, puzzle.letter, puzzle.bonusChallenge, now());
+      await store.put(room);
+      return toView(room, playerId, now());
+    },
+
+    /** The host choosing how long the match runs, before the first round. */
+    async setRounds(code: string, playerId: string, totalRounds: number): Promise<RoomView> {
+      const room = await load(code);
+      touch(room, playerId, now());
+      setTotalRounds(room, playerId, totalRounds);
+      await store.put(room);
+      return toView(room, playerId, now());
+    },
+
+    /** Wipes the standings and lets the host set the length again. */
+    async newMatch(code: string, playerId: string): Promise<RoomView> {
+      const room = await load(code);
+      touch(room, playerId, now());
+      newMatch(room, playerId);
       await store.put(room);
       return toView(room, playerId, now());
     },
