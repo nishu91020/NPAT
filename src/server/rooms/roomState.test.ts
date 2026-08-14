@@ -199,6 +199,27 @@ describe('the leaderboard', () => {
     expect(ranked.map((r) => r.rank)).toEqual([1, 1, 3]);
     expect(ranked[1].tied).toBe(true);
   });
+
+  // ⚠️ A tie has two sides. Flagging only the second told the leader they had won
+  // outright while showing the player level with them as tied.
+  it('marks every side of a tie, not just the ones after the first', () => {
+    const ranked = rankRows([
+      { name: 'A', totalScore: 50, timeTakenSeconds: 20 },
+      { name: 'B', totalScore: 50, timeTakenSeconds: 20 },
+      { name: 'C', totalScore: 50, timeTakenSeconds: 20 },
+      { name: 'D', totalScore: 10, timeTakenSeconds: 40 },
+    ]);
+    expect(ranked.map((r) => r.tied)).toEqual([true, true, true, false]);
+  });
+
+  it('does not call a player tied with someone they merely beat on time', () => {
+    const ranked = rankRows([
+      { name: 'Fast', totalScore: 50, timeTakenSeconds: 5 },
+      { name: 'Slow', totalScore: 50, timeTakenSeconds: 20 },
+    ]);
+    expect(ranked.map((r) => r.tied)).toEqual([false, false]);
+    expect(ranked.map((r) => r.rank)).toEqual([1, 2]);
+  });
 });
 
 describe('presence and the room lifecycle', () => {

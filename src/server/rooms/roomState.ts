@@ -264,7 +264,7 @@ export function submit(
   if (lateBy > ROOM_RULES.submitGraceSeconds * 1000) {
     throw new RoomError('The round is over.', 409);
   }
-  const elapsed = Math.max(1, Math.round((now - room.round.startedAt) / 1000));
+  const elapsed = Math.max(1, Math.ceil((now - room.round.startedAt) / 1000));
 
   room.round.submissions[playerId] = {
     answers,
@@ -308,7 +308,7 @@ function endRound(room: Room, endedBy: 'all-submitted' | 'clock', now: number): 
       answers: { name: '', place: '', animal: '', thing: '' },
       timeTakenSeconds: Math.min(
         ROOM_RULES.roundSeconds,
-        Math.max(1, Math.round((now - room.round.startedAt) / 1000))
+        Math.max(1, Math.ceil((now - room.round.startedAt) / 1000))
       ),
       auto: true,
     };
@@ -357,7 +357,7 @@ export function rankRows<T extends { totalScore: number; timeTakenSeconds: numbe
   );
 
   let lastRank = 0;
-  return sorted.map((row, index) => {
+  const ranked = sorted.map((row, index) => {
     const previous = sorted[index - 1];
     const level =
       previous !== undefined &&
@@ -365,8 +365,18 @@ export function rankRows<T extends { totalScore: number; timeTakenSeconds: numbe
       previous.timeTakenSeconds === row.timeTakenSeconds;
 
     lastRank = level ? lastRank : index + 1;
-    return { ...row, rank: lastRank, tied: level };
+    return { ...row, rank: lastRank, tied: false };
   });
+
+  // ⚠️ A tie has at least two sides, so `tied` is a property of the rank, not of
+  // the row above. Deriving it from the comparison alone flagged only the later
+  // half of a pair: a two-way tie for first rendered as "1" and "1=", telling the
+  // leader they had won outright and the player level with them that they had not.
+  const shared = new Map<number, number>();
+  for (const row of ranked) shared.set(row.rank, (shared.get(row.rank) ?? 0) + 1);
+  for (const row of ranked) row.tied = (shared.get(row.rank) ?? 0) > 1;
+
+  return ranked;
 }
 
 /** Records a finished round into the session standings. */

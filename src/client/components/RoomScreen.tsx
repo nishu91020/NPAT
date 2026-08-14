@@ -64,6 +64,16 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
   const youAreRacing = Boolean(you?.racing);
   const timeLeft = room.round ? secondsLeft(room.round, Date.now() - fetchedAtMs) : 0;
 
+  // First place can be shared, so the winner is every row on rank one — naming
+  // only the first would hand the match to whoever happened to sort highest.
+  const champions = room.standings.filter((row) => row.rank === 1).map((row) => row.name);
+  const championLine =
+    champions.length === 0
+      ? '.'
+      : champions.length === 1
+        ? ` — ${champions[0]} takes it.`
+        : ` — ${champions.slice(0, -1).join(', ')} and ${champions[champions.length - 1]} tie it.`;
+
   // A new round means a clean sheet.
   useEffect(() => {
     if (roundNumber !== lastRoundRef.current) {
@@ -519,7 +529,7 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
               </h3>
               <p className="mt-1 text-sm text-slate-600 font-medium">
                 {room.totalRounds} round{room.totalRounds === 1 ? '' : 's'} played
-                {room.standings[0] ? ` — ${room.standings[0].name} takes it.` : '.'}
+                {championLine}
               </p>
             </div>
           )}
