@@ -1,5 +1,6 @@
 import type {
   BonusChallenge,
+  RoomResults,
   RoomScoreRow,
   RoomStandingRow,
   RoomView,
@@ -45,7 +46,7 @@ export function createRoom(code: string, now: number): Room {
     totalRounds: ROOM_RULES.defaultRounds,
     createdAt: now,
     emptySince: now,
-    judging: false,
+    judgingSince: null,
   };
 }
 
@@ -206,6 +207,7 @@ export function newMatch(room: Room, playerId: string): Room {
   room.results = null;
   room.standings = {};
   room.roundsPlayed = 0;
+  room.judgingSince = null;
   return room;
 }
 
@@ -322,6 +324,36 @@ function endRound(room: Room, endedBy: 'all-submitted' | 'clock', now: number): 
   room.round.endedBy = anyLate ? 'clock' : endedBy;
 
   room.phase = 'judging';
+  return room;
+}
+
+/**
+ * Whether this caller may do the judging.
+ *
+ * Judging is the one step that must happen exactly once: it calls the model and
+ * then adds a round to the standings, so two replicas both doing it would score
+ * the round twice. The claim is a timestamp in the shared room rather than a flag
+ * in a process, and the conditional write is what settles who gets it. It goes
+ * stale on purpose — a replica recycled mid-judgement would otherwise leave the
+ * room waiting on a process that is never coming back.
+ */
+export function canClaimJudging(room: Room, now: number): boolean {
+  if (room.phase !== 'judging') return false;
+  if (room.judgingSince === null) return true;
+  return (now - room.judgingSince) / 1000 >= ROOM_RULES.judgingClaimSeconds;
+}
+
+export function claimJudging(room: Room, now: number): Room {
+  room.judgingSince = now;
+  return room;
+}
+
+/** Publishes a judged round: the results, the standings, and the reveal. */
+export function publishResults(room: Room, results: RoomResults): Room {
+  room.results = results;
+  recordResults(room, results.rows);
+  room.phase = 'reveal';
+  room.judgingSince = null;
   return room;
 }
 

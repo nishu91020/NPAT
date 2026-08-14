@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import express from 'express';
 import path from 'path';
 import { getDailyPuzzleData, getRandomPuzzleData } from '../shared/puzzle';
+import { readAnswers } from './answers';
 import {
   createAzureJudge,
   evaluateRound,
@@ -33,7 +34,7 @@ import {
   resolveAzureConfig,
   type AzureClient,
 } from './azure';
-import { RoomError, createRoomService } from './rooms';
+import { RoomError, createBlobRoomStore, createMemoryRoomStore, createRoomService, type RoomService, type RoomStore } from './rooms';
 
 import {
   createAzureMonitorTelemetry,
@@ -146,7 +147,9 @@ const practiceBonus: BonusChallengeSource = practiceAiSource
   : randomBuiltinSource;
 
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', time: new Date().toISOString() });
+  // `rooms` is reported because it is a deployment decision, not a code one: it
+  // says whether this replica can serve rooms and whether they are shared.
+  res.json({ status: 'ok', time: new Date().toISOString(), rooms: roomsMode });
 });
 
 app.get('/api/daily-challenge', async (req, res) => {
@@ -173,8 +176,15 @@ app.post('/api/generate-bonus', async (req, res) => {
 app.post('/api/validate', async (req, res) => {
   const { letter, answers, bonusChallenge, timeTakenSeconds } = req.body ?? {};
 
-  if (!letter || !answers) {
-    return res.status(400).json({ error: 'Missing letter or answers' });
+  // The letter is compared against every answer, so it is held to the same bar:
+  // a non-string got as far as the referee before failing.
+  if (typeof letter !== 'string' || !letter.trim()) {
+    return res.status(400).json({ error: 'Missing letter' });
+  }
+
+  const parsed = readAnswers(answers);
+  if (parsed.error) {
+    return res.status(400).json({ error: parsed.error });
   }
 
   const started = Date.now();
@@ -184,7 +194,7 @@ app.post('/api/validate', async (req, res) => {
     evaluation = await evaluateRound(
       {
         letter,
-        answers,
+        answers: parsed.answers,
         bonusChallenge,
         timeTakenSeconds:
           typeof timeTakenSeconds === 'number' ? timeTakenSeconds : DEFAULT_TIME_TAKEN_SECONDS,
@@ -217,15 +227,67 @@ app.post('/api/validate', async (req, res) => {
  * is: one letter a day, played once, with nothing about rooms able to corrupt it.
  * ------------------------------------------------------------------------- */
 
-const rooms = createRoomService({
-  judge,
-  // Each round draws a fresh letter, skipping the one just played.
-  nextPuzzle: async (excludeLetter) => {
-    const puzzle = getRandomPuzzleData(excludeLetter);
-    const bonusChallenge = await practiceBonus.next(puzzle.letter);
-    return { letter: puzzle.letter, bonusChallenge };
-  },
-});
+/**
+ * Where rooms live — and whether they are offered at all.
+ *
+ * ⚠️ A room is shared state with a lifetime, which makes it the one feature this
+ * app cannot serve from process memory by default. It runs at up to 5 replicas
+ * and scales to zero, so an in-memory room is served differently to each player
+ * and erased the moment the app goes idle. Rather than let a deployment discover
+ * that in front of players, the endpoints are only mounted when the environment
+ * has answered the question:
+ *
+ * - `ROOM_STORAGE` — a blob endpoint (Entra ID) or an Azurite connection string.
+ *   Shared, survives a restart, correct at any replica count.
+ * - `ROOMS_SINGLE_REPLICA=true` — an explicit promise that this deployment runs
+ *   one replica and accepts losing rooms on restart.
+ * - neither, in production — rooms are disabled and say so, rather than quietly
+ *   handing two players two different rooms.
+ *
+ * Development is one process by definition, so it needs no such declaration.
+ */
+function createRoomStore(): { store: RoomStore; mode: 'shared' | 'single-replica' } | null {
+  const target = process.env.ROOM_STORAGE?.trim();
+  if (target) return { store: createBlobRoomStore(target), mode: 'shared' };
+
+  if (process.env.ROOMS_SINGLE_REPLICA === 'true') {
+    console.warn(
+      'Rooms are in-memory: ROOMS_SINGLE_REPLICA is set. Rooms are lost on restart and are ' +
+        'only correct while this deployment runs exactly one replica. Set ROOM_STORAGE to share them.'
+    );
+    return { store: createMemoryRoomStore(), mode: 'single-replica' };
+  }
+
+  if (process.env.NODE_ENV === 'production') return null;
+  return { store: createMemoryRoomStore(), mode: 'single-replica' };
+}
+
+const roomStore = createRoomStore();
+const roomsMode = roomStore?.mode ?? 'disabled';
+
+if (roomStore) console.log(`Rooms enabled (${roomStore.mode}).`);
+else console.warn('Rooms are DISABLED: set ROOM_STORAGE, or ROOMS_SINGLE_REPLICA=true to accept in-memory rooms.');
+
+const rooms = roomStore
+  ? createRoomService({
+      store: roomStore.store,
+      judge,
+      // Each round draws a fresh letter, skipping the one just played.
+      nextPuzzle: async (excludeLetter) => {
+        const puzzle = getRandomPuzzleData(excludeLetter);
+        const bonusChallenge = await practiceBonus.next(puzzle.letter);
+        return { letter: puzzle.letter, bonusChallenge };
+      },
+    })
+  : null;
+
+/** The room service, or a 503 that explains itself. Never an unhandled null. */
+function roomService(): RoomService {
+  if (!rooms) {
+    throw new RoomError('Rooms are not enabled on this deployment.', 503);
+  }
+  return rooms;
+}
 
 /** Rejects junk before it reaches the room service. */
 function readIdentity(req: express.Request): { playerId: string; name: string } {
@@ -255,14 +317,14 @@ async function handleRoom(res: express.Response, work: () => Promise<unknown>) {
 app.post('/api/rooms', async (req, res) => {
   await handleRoom(res, async () => {
     const { playerId, name } = readIdentity(req);
-    return rooms.create(playerId, name);
+    return roomService().create(playerId, name);
   });
 });
 
 app.post('/api/rooms/:code/join', async (req, res) => {
   await handleRoom(res, async () => {
     const { playerId, name } = readIdentity(req);
-    return rooms.join(req.params.code, playerId, name);
+    return roomService().join(req.params.code, playerId, name);
   });
 });
 
@@ -272,7 +334,7 @@ app.get('/api/rooms/:code', async (req, res) => {
   await handleRoom(res, async () => {
     const playerId = typeof req.query.playerId === 'string' ? req.query.playerId : '';
     if (!playerId) throw new RoomError('Missing player id.', 400);
-    return rooms.view(req.params.code, playerId);
+    return roomService().view(req.params.code, playerId);
   });
 });
 
@@ -280,7 +342,7 @@ app.post('/api/rooms/:code/start', async (req, res) => {
   await handleRoom(res, async () => {
     const playerId = typeof req.body?.playerId === 'string' ? req.body.playerId : '';
     if (!playerId) throw new RoomError('Missing player id.', 400);
-    return rooms.start(req.params.code, playerId);
+    return roomService().start(req.params.code, playerId);
   });
 });
 
@@ -291,7 +353,7 @@ app.post('/api/rooms/:code/rounds', async (req, res) => {
     const totalRounds = Number(req.body?.totalRounds);
     if (!playerId) throw new RoomError('Missing player id.', 400);
     if (!Number.isInteger(totalRounds)) throw new RoomError('Missing round count.', 400);
-    return rooms.setRounds(req.params.code, playerId, totalRounds);
+    return roomService().setRounds(req.params.code, playerId, totalRounds);
   });
 });
 
@@ -299,18 +361,23 @@ app.post('/api/rooms/:code/new-match', async (req, res) => {
   await handleRoom(res, async () => {
     const playerId = typeof req.body?.playerId === 'string' ? req.body.playerId : '';
     if (!playerId) throw new RoomError('Missing player id.', 400);
-    return rooms.newMatch(req.params.code, playerId);
+    return roomService().newMatch(req.params.code, playerId);
   });
 });
 
 app.post('/api/rooms/:code/submit', async (req, res) => {
   await handleRoom(res, async () => {
     const playerId = typeof req.body?.playerId === 'string' ? req.body.playerId : '';
-    const answers = req.body?.answers;
     if (!playerId) throw new RoomError('Missing player id.', 400);
-    if (!answers) throw new RoomError('Missing answers.', 400);
+
+    // ⚠️ Held to the same shape as a solo round. These answers are scored by the
+    // same referee, which takes them for strings — a number or an object used to
+    // reach it and throw, reporting a malformed request as a server fault.
+    const parsed = readAnswers(req.body?.answers);
+    if (parsed.error) throw new RoomError(parsed.error, 400);
+
     // The clock is the server's: nothing the client says about timing is read.
-    return rooms.submit(req.params.code, playerId, answers);
+    return roomService().submit(req.params.code, playerId, parsed.answers);
   });
 });
 
@@ -318,14 +385,14 @@ app.post('/api/rooms/:code/next', async (req, res) => {
   await handleRoom(res, async () => {
     const playerId = typeof req.body?.playerId === 'string' ? req.body.playerId : '';
     if (!playerId) throw new RoomError('Missing player id.', 400);
-    return rooms.next(req.params.code, playerId);
+    return roomService().next(req.params.code, playerId);
   });
 });
 
 app.post('/api/rooms/:code/leave', async (req, res) => {
   await handleRoom(res, async () => {
     const playerId = typeof req.body?.playerId === 'string' ? req.body.playerId : '';
-    if (playerId) await rooms.leave(req.params.code, playerId);
+    if (playerId) await roomService().leave(req.params.code, playerId);
     return { ok: true };
   });
 });

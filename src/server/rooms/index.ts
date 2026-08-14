@@ -1,4 +1,5 @@
 export { createMemoryRoomStore } from './memoryStore';
+export { createBlobRoomStore } from './blobStore';
 export { createRoomService, type RoomService, type RoomServiceDeps } from './service';
 export {
   RoomError,
@@ -15,6 +16,9 @@ export {
   setTotalRounds,
   canSetRounds,
   isMatchComplete,
+  canClaimJudging,
+  claimJudging,
+  publishResults,
   reapAbsent,
   isExpired,
   toView,
@@ -23,4 +27,10 @@ export {
   standingsOf,
   recordResults,
 } from './roomState';
-export { ROOM_RULES, type Room, type RoomStore } from './types';
+export {
+  ROOM_RULES,
+  RoomVersionConflict,
+  type Room,
+  type RoomStore,
+  type StoredRoom,
+} from './types';

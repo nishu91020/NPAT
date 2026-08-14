@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BonusChallenge, UserAnswers } from '../../shared/contract';
 import { createRoomService } from './service';
+import { createMemoryRoomStore } from './memoryStore';
 import {
   RoomError,
   backToLobby,
@@ -23,7 +24,7 @@ import {
   toView,
   touch,
 } from './roomState';
-import { ROOM_RULES } from './types';
+import { ROOM_RULES, RoomVersionConflict } from './types';
 import type { Judge } from '../referee';
 
 const CHALLENGE: BonusChallenge = {
@@ -408,6 +409,43 @@ function service() {
   });
 }
 
+/**
+ * Two services over one store — what two replicas serving one room really are.
+ *
+ * The clock is shared and injected so a round can be pushed past its deadline
+ * without waiting a minute for it.
+ */
+function replicas(count = 2) {
+  const store = createMemoryRoomStore();
+  let clock = T0;
+  const judged: string[] = [];
+
+  const countingJudge: Judge = {
+    async judge(request) {
+      judged.push(request.answers.name);
+      return stubJudge.judge(request);
+    },
+  };
+
+  const services = Array.from({ length: count }, () =>
+    createRoomService({
+      store,
+      judge: countingJudge,
+      nextPuzzle: async () => ({ letter: 'S', bonusChallenge: CHALLENGE }),
+      now: () => clock,
+    })
+  );
+
+  return {
+    store,
+    services,
+    judged,
+    advanceTo: (seconds: number) => {
+      clock = sec(seconds);
+    },
+  };
+}
+
 describe('the room service end to end', () => {
   it('creates a room, admits a second player, races, and reveals a leaderboard', async () => {
     const rooms = service();
@@ -485,5 +523,145 @@ describe('the room service end to end', () => {
     expect(fresh.matchComplete).toBe(false);
     expect(fresh.canSetRounds).toBe(true);
     expect(fresh.standings).toEqual([]);
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * Several replicas, one room.
+ *
+ * This app runs at up to 5 replicas, so two players in one room are routinely
+ * served by different processes. These tests are the reason the store deals in
+ * versions at all: without them, the last writer silently erases whatever the
+ * other replica had just recorded.
+ * ------------------------------------------------------------------------- */
+
+describe('a room shared between replicas', () => {
+  it('refuses a write built on a read that has since gone stale', async () => {
+    const store = createMemoryRoomStore();
+    await store.create(createRoom('TEST', T0));
+
+    const mine = await store.get('TEST');
+    const theirs = await store.get('TEST');
+
+    await store.put(theirs!);
+    await expect(store.put(mine!)).rejects.toThrow(RoomVersionConflict);
+  });
+
+  it('hands out copies, so a room cannot be changed without saving it', async () => {
+    const store = createMemoryRoomStore();
+    await store.create(createRoom('TEST', T0));
+
+    const stored = await store.get('TEST');
+    stored!.room.phase = 'racing';
+
+    expect((await store.get('TEST'))!.room.phase).toBe('lobby');
+  });
+
+  it('refuses to create a room code that is already taken', async () => {
+    const store = createMemoryRoomStore();
+    await store.create(createRoom('TAKEN', T0));
+
+    await expect(store.create(createRoom('TAKEN', T0))).rejects.toThrow(RoomVersionConflict);
+  });
+
+  // ⚠️ The bug this whole design exists to prevent: one replica reads, another
+  // writes, and the first saves a room built before that write ever happened.
+  it('redoes a change that lost the race instead of erasing the winner', async () => {
+    const { store, services } = replicas();
+    const [a, b] = services;
+
+    const { code } = await a.create('p1', 'Ana');
+
+    // `a` is part-way through admitting Ben when Cal joins on `b`.
+    let interrupted = false;
+    const racing = {
+      ...store,
+      async put(stored: Parameters<typeof store.put>[0]) {
+        if (!interrupted) {
+          interrupted = true;
+          await b.join(code, 'p3', 'Cal');
+        }
+        return store.put(stored);
+      },
+    };
+
+    const interruptible = createRoomService({
+      store: racing,
+      judge: stubJudge,
+      nextPuzzle: async () => ({ letter: 'S', bonusChallenge: CHALLENGE }),
+      now: () => T0,
+    });
+
+    const view = await interruptible.join(code, 'p2', 'Ben');
+
+    expect(interrupted).toBe(true);
+    expect(view.players.map((p) => p.name).sort()).toEqual(['Ana', 'Ben', 'Cal']);
+  });
+
+  it('keeps both submissions when two players answer at the same moment', async () => {
+    const { services, advanceTo } = replicas();
+    const [a, b] = services;
+
+    const { code } = await a.create('p1', 'Ana');
+    await b.join(code, 'p2', 'Ben');
+    await a.start(code, 'p1');
+
+    advanceTo(10);
+    await Promise.all([a.submit(code, 'p1', GOOD), b.submit(code, 'p2', GOOD)]);
+
+    const view = await a.view(code, 'p1');
+    expect(view.phase).toBe('reveal');
+    expect(view.results?.rows).toHaveLength(2);
+    expect(view.results?.rows.map((r) => r.answers.name)).toEqual(['Sam', 'Sam']);
+  });
+
+  /**
+   * ⚠️ Judging is the one step that must happen exactly once. It adds a round to
+   * the standings, so two replicas both doing it would score the round twice —
+   * and unlike a lost write, that damage cannot be undone by the next poll.
+   */
+  it('judges a round once, however many replicas notice it is over', async () => {
+    const { services, judged, advanceTo } = replicas(3);
+    const [a, b, c] = services;
+
+    const { code } = await a.create('p1', 'Ana');
+    await b.join(code, 'p2', 'Ben');
+    await a.start(code, 'p1');
+
+    advanceTo(10);
+    await a.submit(code, 'p1', GOOD);
+
+    // The clock runs out, and every replica sees it on its next poll.
+    advanceTo(ROOM_RULES.roundSeconds + ROOM_RULES.submitGraceSeconds + 1);
+    await Promise.all([a.view(code, 'p1'), b.view(code, 'p2'), c.view(code, 'p1')]);
+
+    const view = await a.view(code, 'p1');
+    expect(view.phase).toBe('reveal');
+    expect(view.results?.rows).toHaveLength(2);
+    // One round each, not one per replica that happened to look.
+    expect(view.standings.map((row) => row.roundsPlayed)).toEqual([1, 1]);
+    expect(judged).toHaveLength(2);
+  });
+
+  it('lets another replica take over a judging claim that went stale', async () => {
+    const { store, services, advanceTo } = replicas();
+    const [a, b] = services;
+
+    const { code } = await a.create('p1', 'Ana');
+    await a.start(code, 'p1');
+
+    advanceTo(10);
+    await a.submit(code, 'p1', GOOD);
+
+    // Rewind the room to a replica that claimed the judging and then died.
+    const stored = await store.get(code);
+    stored!.room.phase = 'judging';
+    stored!.room.results = null;
+    stored!.room.judgingSince = sec(10) - ROOM_RULES.judgingClaimSeconds * 1000 - 1000;
+    await store.put(stored!);
+
+    const view = await b.view(code, 'p1');
+    expect(view.phase).toBe('reveal');
+    expect(view.results?.rows).toHaveLength(1);
   });
 });

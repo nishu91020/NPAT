@@ -64,8 +64,38 @@ export interface Room {
   createdAt: number;
   /** When the room became empty, or null while someone is here. */
   emptySince: number | null;
-  /** Set while judging is in flight, so a poll cannot start it twice. */
-  judging: boolean;
+  /**
+   * When a replica claimed the judging, or null when nobody holds it.
+   *
+   * A timestamp rather than a flag because the claim crosses processes: a replica
+   * that is recycled mid-judgement would otherwise leave the room stuck in
+   * `judging` for as long as it survives, with no one able to take over.
+   */
+  judgingSince: number | null;
+}
+
+/**
+ * A room as it was read, with the version it was read at.
+ *
+ * The version is what makes a shared store safe. Every mutation is a
+ * read-modify-write, and with several replicas serving one room those interleave:
+ * two players submitting at once on different processes would otherwise each save
+ * a room built from a copy that predated the other, and one submission would
+ * simply vanish. Writes are conditional on this value instead, and a caller that
+ * loses the race is told so and redoes the change on fresh state.
+ */
+export interface StoredRoom {
+  room: Room;
+  /** Opaque to callers — only the adapter that issued it knows what it means. */
+  version: string | null;
+}
+
+/** Thrown when a conditional write lost: something else wrote first. */
+export class RoomVersionConflict extends Error {
+  constructor(code: string) {
+    super(`Room ${code} changed while it was being updated`);
+    this.name = 'RoomVersionConflict';
+  }
 }
 
 /**
@@ -78,9 +108,11 @@ export interface Room {
  * bug the daily challenge already had once.
  */
 export interface RoomStore {
+  /** Fails with `RoomVersionConflict` when that code is already taken. */
   create(room: Room): Promise<void>;
-  get(code: string): Promise<Room | null>;
-  put(room: Room): Promise<void>;
+  get(code: string): Promise<StoredRoom | null>;
+  /** Fails with `RoomVersionConflict` when the room moved on since it was read. */
+  put(stored: StoredRoom): Promise<void>;
   delete(code: string): Promise<void>;
 }
 
@@ -102,6 +134,13 @@ export interface RoomRules {
   presenceTimeoutSeconds: number;
   /** The match length used until the host picks one. */
   defaultRounds: number;
+  /**
+   * How long a judging claim is honoured before another replica may take it.
+   *
+   * Long enough to cover a slow model call, short enough that a replica dying
+   * mid-judgement costs one wait rather than a room nobody can rescue.
+   */
+  judgingClaimSeconds: number;
 }
 
 export const ROOM_RULES: RoomRules = {
@@ -111,6 +150,7 @@ export const ROOM_RULES: RoomRules = {
   emptyGraceSeconds: 120,
   presenceTimeoutSeconds: 20,
   defaultRounds: 3,
+  judgingClaimSeconds: 45,
 };
 
 export type ScoredRow = RoomScoreRow;
