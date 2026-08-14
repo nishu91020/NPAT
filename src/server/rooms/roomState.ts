@@ -17,8 +17,8 @@ import { ROOM_RULES, type Room, type RoomPlayerState } from './types';
  * background process to reap rooms or fire a round's deadline. A room only ever
  * moves when someone is looking at it, which is exactly when it matters.
  *
- * Shape validated first as a throwaway prototype:
- * .scratch/multiplayer-rooms/prototype/room-state.html
+ * Shape validated first as a throwaway prototype, since deleted: the walkthroughs
+ * it settled are recorded in .scratch/multiplayer-rooms/issues/01-round-shape.md.
  */
 
 /** No O/0/I/1 — a code has to survive being read down a phone line. */
