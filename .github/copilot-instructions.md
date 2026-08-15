@@ -136,6 +136,21 @@ because challenges generated before it existed are still served from Blob storag
 Both judge failures were **intermittent**, so a single passing run proves nothing here. Re-run a live
 check several times before believing a prompt change fixed something.
 
+⚠️ **In a room, a `checkKind: 'none'` rule is settled once for the whole round, not once per player.**
+`scoreRound` judges every racer in a separate call — deliberately, so one player's content-filter
+rejection cannot take down everyone else's round — and a rule needing world knowledge ("at least 2
+answers must relate to a colour") is the one thing those independent calls cannot be trusted with:
+two players in one round were seen getting different bonus verdicts for equally good answers. So
+`sharedBonusRuling` in `src/server/referee/roundBonus.ts` asks `createAzureBonusAdjudicator` once,
+over every player's distinct answers together, at `temperature: 0`, and `applyBonusRuling` holds
+every player to that one ruling. Bonus authority runs least-trusted last: the shared ruling overrules
+the per-player judge, and `enforceBonusRule` overrules them both, so a mechanical rule is never
+adjudicated at all. It is skipped for a lone racer, for a mechanical rule, and when nothing is
+scoreable; a failed adjudication logs and falls back to the per-player rulings, because losing
+consistency must never cost anybody their round. Solo play passes no ruling — there is nobody to be
+inconsistent with. The adjudicator rules **only** on the bonus: validity and the target letter are
+settled elsewhere, and a ruling on a word nobody wrote is dropped rather than trusted.
+
 **Generated bonus challenges must pass two tests**, encoded in `BONUS_SYSTEM_PROMPT`: *possible*
 (never ask a category to be something it cannot be — no Name is a plant) and *actually extra* (a rule
 restating "starts with the target letter" is earned for free by every valid answer). Both were real

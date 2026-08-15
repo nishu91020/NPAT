@@ -5,7 +5,7 @@ import type {
   RoomView,
   UserAnswers,
 } from '../../shared/contract';
-import { evaluateRound, type Judge } from '../referee';
+import { evaluateRound, sharedBonusRuling, type BonusAdjudicator, type Judge } from '../referee';
 import { createMemoryRoomStore } from './memoryStore';
 import {
   RoomError,
@@ -33,6 +33,13 @@ import { RoomVersionConflict, type Room, type RoomStore, type StoredRoom } from 
 export interface RoomServiceDeps {
   store?: RoomStore;
   judge: Judge;
+  /**
+   * Settles a knowledge-based bonus rule once for the whole round.
+   *
+   * Optional: without one every player keeps their own judge's ruling, which is
+   * the degraded behaviour rather than an error.
+   */
+  bonusAdjudicator?: BonusAdjudicator;
   /** Supplies the letter and bonus challenge for each round. */
   nextPuzzle: (excludeLetter?: string) => Promise<{ letter: string; bonusChallenge: BonusChallenge }>;
   now?: () => number;
@@ -65,6 +72,7 @@ const MAX_WRITE_ATTEMPTS = 6;
 export function createRoomService({
   store = createMemoryRoomStore(),
   judge,
+  bonusAdjudicator,
   nextPuzzle,
   now = () => Date.now(),
 }: RoomServiceDeps) {
@@ -136,10 +144,24 @@ export function createRoomService({
    * Independent calls are only safe because duplicate answers do not score less:
    * no player's score depends on another's. It also keeps one player's content
    * filter rejection from taking down everyone else's round.
+   *
+   * ⚠️ The bonus rule is the one thing that cannot be left to those independent
+   * calls. A rule needing world knowledge — "two answers must relate to a colour"
+   * — is not mechanically decidable, so `enforceBonusRule` hands it back to the
+   * model, and the model applied it differently to each player: two players in
+   * one round, answering equally well, were seen getting different bonus
+   * verdicts. So it is settled ONCE for the round, over everybody's answers
+   * together, and that ruling is applied to every player.
    */
   async function scoreRound(room: Room): Promise<RoomResults> {
     const round = room.round;
     if (!round) throw new RoomError('No round to judge.', 409);
+
+    const ruling = await sharedBonusRuling(bonusAdjudicator, {
+      letter: round.letter,
+      bonusChallenge: round.bonusChallenge,
+      submissions: round.racers.map((playerId) => round.submissions[playerId].answers),
+    });
 
     const scored = await Promise.all(
       round.racers.map(async (playerId): Promise<Omit<RoomScoreRow, 'rank' | 'tied'>> => {
@@ -154,7 +176,8 @@ export function createRoomService({
             bonusChallenge: round.bonusChallenge,
             timeTakenSeconds: submission.timeTakenSeconds,
           },
-          judge
+          judge,
+          ruling
         );
 
         return {

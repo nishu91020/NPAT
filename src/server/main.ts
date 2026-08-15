@@ -8,11 +8,13 @@ import path from 'path';
 import { getDailyPuzzleData, getRandomPuzzleData } from '../shared/puzzle';
 import { readAnswers } from './answers';
 import {
+  createAzureBonusAdjudicator,
   createAzureJudge,
   evaluateRound,
   heuristicJudge,
   unscoreableCategories,
   withFallback,
+  type BonusAdjudicator,
   type Judge,
 } from './referee';
 import {
@@ -86,6 +88,16 @@ if (azure) {
 const judge: Judge = azure
   ? withFallback(createAzureJudge(azure.client, azure.judgeDeployment), heuristicJudge)
   : heuristicJudge;
+
+/**
+ * Settles a round's bonus rule for every player at once, so a rule the model has
+ * to interpret is interpreted the same way for all of them. Only rooms use it —
+ * solo play has nobody to be inconsistent with — and it is optional, because a
+ * heuristic-judged deployment has no model to ask.
+ */
+const bonusAdjudicator: BonusAdjudicator | undefined = azure
+  ? createAzureBonusAdjudicator(azure.client, azure.judgeDeployment)
+  : undefined;
 
 /**
  * Two AI sources, differing only in how each chooses its rule family.
@@ -272,6 +284,7 @@ const rooms = roomStore
   ? createRoomService({
       store: roomStore.store,
       judge,
+      bonusAdjudicator,
       // Each round draws a fresh letter, skipping the one just played.
       nextPuzzle: async (excludeLetter) => {
         const puzzle = getRandomPuzzleData(excludeLetter);
