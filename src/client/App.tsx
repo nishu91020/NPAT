@@ -31,7 +31,7 @@ export default function App() {
   const rooms = useRoom({ onExited: () => setView('landing') });
 
   const todayStr = new Date().toISOString().split('T')[0];
-  
+
   useEffect(() => {
     setMuted(!soundEnabled);
   }, [soundEnabled]);
@@ -261,7 +261,6 @@ export default function App() {
         </div>
       </footer>
 
-      {/* Modals */}
       <StreakStatsModal
         isOpen={isStatsOpen}
         onClose={() => setIsStatsOpen(false)}
@@ -275,4 +274,3 @@ export default function App() {
     </div>
   );
 }
-

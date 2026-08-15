@@ -37,14 +37,6 @@ export const CategoryInputForm: React.FC<CategoryInputFormProps> = ({
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const targetLetter = puzzle.letter.toUpperCase();
 
-  /**
-   * When the round began, in wall-clock time.
-   *
-   * The elapsed time used to be derived as `timeLimitSeconds - timeLeft`, which
-   * breaks the moment a lost life resets the clock to 15: a player who had
-   * already used the full minute could submit and report 45 seconds, earning a
-   * speed bonus for the slowest possible round.
-   */
   const startedAtRef = useRef<number>(Date.now());
 
   function elapsedSeconds(): number {
@@ -252,4 +244,3 @@ export const CategoryInputForm: React.FC<CategoryInputFormProps> = ({
     </form>
   );
 };
-

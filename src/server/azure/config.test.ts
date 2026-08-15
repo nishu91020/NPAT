@@ -72,8 +72,7 @@ describe('resolveAzureConfig', () => {
   });
 
   describe('endpoint normalisation accepts whatever the portal shows', () => {
-    // The portal's own sample includes the /openai/v1 suffix, and newer
-    // resources use services.ai.azure.com rather than openai.azure.com.
+
     const expected = 'https://example-resource.services.ai.azure.com/openai/v1';
 
     it.each([

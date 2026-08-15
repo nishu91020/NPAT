@@ -4,7 +4,7 @@ import { AZURE_TOKEN_SCOPE, AzureConfig } from './config';
 
 const config: AzureConfig = {
   kind: 'configured',
-  // Already normalised by resolveAzureConfig.
+
   endpoint: 'https://my-resource.openai.azure.com/openai/v1',
   judgeDeployment: 'npat-judge',
   bonusDeployment: 'npat-bonus',

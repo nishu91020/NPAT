@@ -5,7 +5,6 @@ import { DailyChallengeStore } from './store';
 
 const CONTAINER = 'daily-challenges';
 
-/** One blob per date, so a day's challenge is trivially inspectable. */
 function blobName(dateStr: string): string {
   return `${dateStr}.json`;
 }
@@ -18,14 +17,6 @@ async function readAll(stream: NodeJS.ReadableStream): Promise<string> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-/**
- * Blob-backed store.
- *
- * Production authenticates with Entra ID, so there is no connection string and
- * no key — the identity needs the *Storage Blob Data Contributor* role. Local
- * development points at Azurite with the well-known development connection
- * string, which is a fixed test credential and not a secret.
- */
 export function createBlobStore(
   endpointOrConnectionString: string,
   containerName = CONTAINER
@@ -38,10 +29,9 @@ export function createBlobStore(
   const container = service.getContainerClient(containerName);
   let ensured: Promise<unknown> | null = null;
 
-  /** Created on first use so local development needs no setup step. */
   function ensureContainer() {
     ensured ??= container.createIfNotExists().catch((err) => {
-      // A parallel replica may have created it first, which is fine.
+
       ensured = null;
       throw err;
     });
@@ -79,8 +69,7 @@ export function createBlobStore(
       const body = JSON.stringify(challenge);
 
       try {
-        // '*' means "only if this blob does not exist", so the first replica to
-        // arrive wins and the rest read its value instead of overwriting it.
+
         await container.getBlockBlobClient(blobName(dateStr)).upload(body, Buffer.byteLength(body), {
           blobHTTPHeaders: { blobContentType: 'application/json' },
           conditions: { ifNoneMatch: '*' },
@@ -89,7 +78,7 @@ export function createBlobStore(
         return challenge;
       } catch (err) {
         if (err instanceof RestError && (err.statusCode === 409 || err.statusCode === 412)) {
-          // Someone else stored one first; theirs is the one everybody serves.
+
           return (await get(dateStr)) ?? challenge;
         }
         throw err;

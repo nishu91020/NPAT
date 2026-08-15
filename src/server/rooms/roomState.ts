@@ -9,20 +9,6 @@ import type {
 import { ROOM_ROUND_CHOICES } from '../../shared/contract';
 import { ROOM_RULES, type PlayerSeat, type Room, type RoomPlayerState } from './types';
 
-/**
- * The room state machine.
- *
- * Pure and clock-injected: every function takes `now`, so the whole thing is
- * testable without timers, and the server can advance a room lazily when someone
- * reads it. That laziness is deliberate — the app scales to zero, so there is no
- * background process to reap rooms or fire a round's deadline. A room only ever
- * moves when someone is looking at it, which is exactly when it matters.
- *
- * Shape validated first as a throwaway prototype, since deleted: the walkthroughs
- * it settled are recorded in .scratch/multiplayer-rooms/issues/01-round-shape.md.
- */
-
-/** No O/0/I/1 — a code has to survive being read down a phone line. */
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const CODE_LENGTH = 4;
 
@@ -69,13 +55,6 @@ export class RoomError extends Error {
   }
 }
 
-/**
- * Drops players who have stopped polling, and closes a room nobody came back to.
- *
- * Called at the top of every read. A player who closes their laptop simply stops
- * polling — there is no disconnect event to listen for on a polling transport,
- * so absence is inferred from silence.
- */
 export function reapAbsent(room: Room, now: number): Room {
   for (const player of room.players) {
     if (!player.present) continue;
@@ -101,7 +80,6 @@ export function isExpired(room: Room, now: number): boolean {
   );
 }
 
-/** The room must never be left with nobody able to start the next round. */
 function ensureHost(room: Room): void {
   const present = presentPlayers(room);
   if (present.length === 0) return;
@@ -121,13 +99,9 @@ export function join(
   const existing = findPlayer(room, playerId);
 
   if (existing) {
-    // ⚠️ A seat is reclaimed by the token, not by the id. Player ids are public —
-    // they are in every view — so an id alone is a claim, not a proof, and
-    // accepting it let anyone take over another player's seat and rename it.
+
     if (existing.token !== token) throw new RoomError('That seat is taken.', 403);
 
-    // A refresh is indistinguishable from leaving, so the same client id
-    // reclaims its seat rather than appearing as a second player.
     existing.present = true;
     existing.lastSeenAt = now;
     existing.name = name || existing.name;
@@ -154,14 +128,6 @@ export function join(
   return room;
 }
 
-/**
- * The player a caller is, or a refusal.
- *
- * Every action on a room goes through here. Membership is proved by the token
- * issued when the seat was taken, never by the id, and a wrong token is refused
- * in exactly the same words as an unknown one — telling an attacker which of the
- * two they got wrong is telling them how close they are.
- */
 export function authorize(room: Room, seat: PlayerSeat): RoomPlayerState {
   const player = findPlayer(room, seat.playerId);
   if (!player || !seat.token || player.token !== seat.token) {
@@ -181,23 +147,8 @@ export function leave(room: Room, playerId: string, now: number): Room {
   return room;
 }
 
-/**
- * How stale a stored heartbeat may get before it is worth a write.
- *
- * Every poll used to save the room, so eight players polling every 1.5s meant
- * ~5 conditional writes a second against one blob — contention that a judging
- * replica has to win to publish its results. A heartbeat only has to be fresher
- * than `presenceTimeoutSeconds` to keep a player in their seat, so most polls
- * change nothing anybody needs saved.
- */
 const PRESENCE_WRITE_INTERVAL_SECONDS = 5;
 
-/**
- * Marks a player present, and says whether that is worth persisting.
- *
- * A `false` return means the room in the store already says everything this poll
- * would have said.
- */
 export function touch(room: Room, playerId: string, now: number): boolean {
   const player = findPlayer(room, playerId);
   if (!player) return false;
@@ -213,17 +164,10 @@ export function touch(room: Room, playerId: string, now: number): boolean {
   return !wasPresent || stale || wasEmpty;
 }
 
-/**
- * Whether the host may still choose the match length.
- *
- * Only before the first round: changing the finish line mid-match would move it
- * for players who have already raced, so the number is settled up front.
- */
 export function canSetRounds(room: Room): boolean {
   return room.phase === 'lobby' && room.roundsPlayed === 0;
 }
 
-/** True once the final round of the match has been scored and shown. */
 export function isMatchComplete(room: Room): boolean {
   if (room.phase === 'racing' || room.phase === 'judging') return false;
   return room.roundsPlayed >= room.totalRounds;
@@ -235,8 +179,7 @@ export function setTotalRounds(room: Room, playerId: string, totalRounds: number
   if (!canSetRounds(room)) {
     throw new RoomError('The match has already started.', 409);
   }
-  // The number arrives from a browser, so it is checked against the same list the
-  // client is offered rather than trusted.
+
   if (!(ROOM_ROUND_CHOICES as readonly number[]).includes(totalRounds)) {
     throw new RoomError('That is not a match length you can pick.', 400);
   }
@@ -245,7 +188,6 @@ export function setTotalRounds(room: Room, playerId: string, totalRounds: number
   return room;
 }
 
-/** Clears the scoreboard and starts a fresh match, keeping everyone in their seats. */
 export function newMatch(room: Room, playerId: string): Room {
   const player = findPlayer(room, playerId);
   if (!player || !player.isHost) throw new RoomError('Only the host can start a match.', 403);
@@ -306,14 +248,9 @@ export function submit(
   if (!room.round.racers.includes(playerId)) {
     throw new RoomError('You are not in this round.', 403);
   }
-  // Idempotent: a retry, a reconnect or a double-click must score once.
+
   if (room.round.submissions[playerId]) return room;
 
-  // A submission that lands after the deadline is a timeout auto-submit arriving
-  // inside the grace window. The answers still count — they were typed in time —
-  // but the clock is capped at the round length so no late arrival wins the race.
-  // Past the window it is refused: rooms only advance when someone reads them, so
-  // without this a submission arriving minutes later would still be taken.
   const lateBy = now - room.round.deadline;
   if (lateBy > ROOM_RULES.submitGraceSeconds * 1000) {
     throw new RoomError('The round is over.', 409);
@@ -329,7 +266,6 @@ export function submit(
   return maybeEndRound(room, now);
 }
 
-/** Ends the round once everyone still present has submitted. */
 export function maybeEndRound(room: Room, now: number): Room {
   if (room.phase !== 'racing' || !room.round) return room;
 
@@ -339,9 +275,7 @@ export function maybeEndRound(room: Room, now: number): Room {
   });
 
   if (outstanding.length === 0) return endRound(room, 'all-submitted', now);
-  // Held open past the deadline so the auto-submits fired by every client at zero
-  // have time to arrive; without this the first poll after the deadline would
-  // score them blank.
+
   if (now >= room.round.deadline + ROOM_RULES.submitGraceSeconds * 1000) {
     return endRound(room, 'clock', now);
   }
@@ -351,9 +285,6 @@ export function maybeEndRound(room: Room, now: number): Room {
 function endRound(room: Room, endedBy: 'all-submitted' | 'clock', now: number): Room {
   if (!room.round) return room;
 
-  // Anyone who never submitted is taken as they stand rather than dropped. Their
-  // time is capped at the round length: the round ends when a poll notices the
-  // deadline has passed, which can be well after the deadline itself.
   let anyAuto = false;
   for (const id of room.round.racers) {
     if (room.round.submissions[id]) continue;
@@ -368,10 +299,6 @@ function endRound(room: Room, endedBy: 'all-submitted' | 'clock', now: number): 
     };
   }
 
-  // ⚠️ "Everyone finished" must mean everyone actually answered in time. A round
-  // can also end because the last player still owing an answer went quiet, or
-  // because every client auto-submitted on the buzzer — the room is no longer
-  // waiting on anyone, but telling the survivors everyone finished is a lie.
   const anyLate = anyAuto || room.round.racers.some((id) => room.round!.submissions[id]?.auto);
   room.round.endedBy = anyLate ? 'clock' : endedBy;
 
@@ -379,16 +306,6 @@ function endRound(room: Room, endedBy: 'all-submitted' | 'clock', now: number): 
   return room;
 }
 
-/**
- * Whether this caller may do the judging.
- *
- * Judging is the one step that must happen exactly once: it calls the model and
- * then adds a round to the standings, so two replicas both doing it would score
- * the round twice. The claim is a timestamp in the shared room rather than a flag
- * in a process, and the conditional write is what settles who gets it. It goes
- * stale on purpose — a replica recycled mid-judgement would otherwise leave the
- * room waiting on a process that is never coming back.
- */
 export function canClaimJudging(room: Room, now: number): boolean {
   if (room.phase !== 'judging') return false;
   if (room.judgingSince === null) return true;
@@ -401,20 +318,10 @@ export function claimJudging(room: Room, now: number): Room {
   return room;
 }
 
-/**
- * Whether a claim taken for one round may still publish into this room.
- *
- * ⚠️ The phase is not enough. A claim that went stale while the model was slow
- * can come back to a room that has since judged that round, revealed it, and
- * started another — also in `judging`. Publishing then scored the old round a
- * second time into the standings and discarded the new one, which no later write
- * can undo.
- */
 export function claimStillHolds(room: Room, roundNumber: number): boolean {
   return room.phase === 'judging' && room.round?.number === roundNumber;
 }
 
-/** Publishes a judged round: the results, the standings, and the reveal. */
 export function publishResults(room: Room, results: RoomResults): Room {
   room.results = results;
   recordResults(room, results.rows);
@@ -437,14 +344,6 @@ export function backToLobby(room: Room, playerId: string): Room {
   return room;
 }
 
-/**
- * Ranks a scored round.
- *
- * ⚠️ Duplicate answers do NOT score less — each player is scored exactly as a
- * solo round is scored, so nothing here recomputes points. This is only a sort.
- * Ties break on time, because in a race whoever got there first is ahead; only
- * players level on BOTH share a rank, and then the next rank is skipped.
- */
 export function rankRows<T extends { totalScore: number; timeTakenSeconds: number; name: string }>(
   rows: T[]
 ): (T & { rank: number; tied: boolean })[] {
@@ -467,10 +366,6 @@ export function rankRows<T extends { totalScore: number; timeTakenSeconds: numbe
     return { ...row, rank: lastRank, tied: false };
   });
 
-  // ⚠️ A tie has at least two sides, so `tied` is a property of the rank, not of
-  // the row above. Deriving it from the comparison alone flagged only the later
-  // half of a pair: a two-way tie for first rendered as "1" and "1=", telling the
-  // leader they had won outright and the player level with them that they had not.
   const shared = new Map<number, number>();
   for (const row of ranked) shared.set(row.rank, (shared.get(row.rank) ?? 0) + 1);
   for (const row of ranked) row.tied = (shared.get(row.rank) ?? 0) > 1;
@@ -478,7 +373,6 @@ export function rankRows<T extends { totalScore: number; timeTakenSeconds: numbe
   return ranked;
 }
 
-/** Records a finished round into the session standings. */
 export function recordResults(room: Room, rows: RoomScoreRow[]): Room {
   for (const row of rows) {
     const entry = (room.standings[row.playerId] ??= {
@@ -510,7 +404,6 @@ export function standingsOf(room: Room): RoomStandingRow[] {
   }));
 }
 
-/** What one player is allowed to see. Never leaks another player's answers mid-round. */
 export function toView(room: Room, playerId: string, now: number): RoomView {
   const you = findPlayer(room, playerId);
 

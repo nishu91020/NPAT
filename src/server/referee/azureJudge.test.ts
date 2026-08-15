@@ -24,7 +24,6 @@ const request = {
 
 const DEPLOYMENT = 'npat-judge';
 
-/** Stands in for the client so the adapter is testable without a network. */
 function fakeClient(completion: unknown) {
   const create = vi.fn(async (_args: any) => completion);
   return {
@@ -68,15 +67,14 @@ describe('buildVerdictSchema', () => {
     };
     walk(schema);
 
-    expect(objects.length).toBe(6); // root + categories + four judgements
+    expect(objects.length).toBe(6);
     for (const obj of objects) {
       expect(obj.additionalProperties).toBe(false);
     }
   });
 
   it('orders bonusEvidence before bonusMatched, so reasoning precedes the verdict', () => {
-    // Structured output is generated in schema order. Observed live: the model
-    // asserted a bonus match its own feedback then contradicted.
+
     const props = Object.keys(schema.properties.categories.properties.name.properties);
 
     expect(props.indexOf('bonusEvidence')).toBeLessThan(props.indexOf('bonusMatched'));
@@ -134,8 +132,7 @@ describe('prompt split', () => {
   });
 
   it('asks for a suggestion when a right answer missed the bonus, not only when it is wrong', () => {
-    // A valid answer that misses the bonus still loses points, so it is the case
-    // players learn the most from; the prompt used to demand silence there.
+
     expect(JUDGE_SYSTEM_PROMPT).toContain('valid is true but bonusMatched is false');
     expect(JUDGE_SYSTEM_PROMPT).not.toContain('When valid is true, use an empty string.');
   });
@@ -145,8 +142,7 @@ describe('prompt split', () => {
   });
 
   it('forbids inventing a word to satisfy the rule', () => {
-    // Observed live once the prompt started demanding bonus suggestions: a Name
-    // came back as "Samm", padded purely to carry a double letter.
+
     expect(JUDGE_SYSTEM_PROMPT).toContain('NEVER invent, misspell or pad');
   });
 
@@ -252,7 +248,7 @@ describe('createAzureJudge', () => {
     const verdict = await createAzureJudge(client, DEPLOYMENT).judge(request);
 
     expect(verdict.categories.name.suggestion).toBe('Sarah');
-    // A correct answer needs no suggestion, and an empty string is not one.
+
     expect(verdict.categories.place.suggestion).toBeUndefined();
   });
 
@@ -382,8 +378,7 @@ describe('createAzureJudge', () => {
     });
 
     it('does not throw on a filtered response — isolation handles it instead', async () => {
-      // See contentFilter.test.ts. A filtered round must not reach the
-      // heuristic, or blocked content would be laundered into a score.
+
       const { client } = fakeClient({
         choices: [{ message: { content: null }, finish_reason: 'content_filter' }],
       });

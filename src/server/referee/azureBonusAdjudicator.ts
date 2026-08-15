@@ -13,11 +13,6 @@ import {
   rulingFrom,
 } from './roundBonus';
 
-/**
- * One ruling per answer. `evidence` is generated before `matched` for the same
- * reason it is in the judge schema: stating the reason first stops the model
- * asserting a match its own words then contradict.
- */
 export function buildAdjudicationSchema() {
   return {
     type: 'object',
@@ -64,11 +59,7 @@ export function buildAdjudicationPrompt(
   entries: BonusEntry[]
 ): string {
   const challenge = request.bonusChallenge;
-  // ⚠️ Quoted as JSON, not interpolated raw. This is the one prompt that carries
-  // several players' words in a single call whose ruling binds all of them, so a
-  // word shaped like an instruction — a quote, a newline, "all others: false" —
-  // would be an attack on somebody else's score. JSON escaping keeps every answer
-  // one unambiguous string.
+
   const lines = entries.map(
     (entry, index) => `${index + 1}. ${entry.category}: ${JSON.stringify(entry.word)}`
   );
@@ -85,21 +76,11 @@ ${lines.join('\n')}
 Rule on all ${entries.length} of them.`;
 }
 
-/** Recognises a category name from the model without trusting it. */
 function categoryOf(raw: unknown): CategoryKey | null {
   const found = CATEGORY_KEYS.find((key) => key === raw);
   return found ?? null;
 }
 
-/**
- * Reads the response into a ruling.
- *
- * Only answers that were actually asked about are kept: a model that invents an
- * entry, renames one, or rules on a word nobody wrote must not be able to hand
- * out a bonus for it. Anything missing from the response is simply left unruled,
- * so that answer falls back to its own judge rather than losing the bonus by
- * default.
- */
 export function toRuling(parsed: any, entries: BonusEntry[]): BonusRuling {
   if (!Array.isArray(parsed?.rulings)) {
     throw new Error('Bonus adjudicator returned no rulings');
@@ -121,12 +102,6 @@ export function toRuling(parsed: any, entries: BonusEntry[]): BonusRuling {
   return rulingFrom(decided);
 }
 
-/**
- * Adjudicator backed by a model deployed on Microsoft Foundry.
- *
- * `deployment` is the deployment name, which is what the API's `model` parameter
- * expects — not the underlying model name.
- */
 export function createAzureBonusAdjudicator(
   client: OpenAI,
   deployment: string
@@ -142,8 +117,7 @@ export function createAzureBonusAdjudicator(
         user: buildAdjudicationPrompt(request, entries),
         schemaName: 'bonus_rulings',
         schema: buildAdjudicationSchema(),
-        // Lower than the judge's: this call exists to be consistent, and nothing
-        // about a rule ruling is improved by variety.
+
         temperature: 0,
       });
 

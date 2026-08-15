@@ -8,6 +8,10 @@ This document explains how the system is put together and, more importantly, **w
 structural decision here is the fix to a bug that actually happened. Rules short enough to state as
 rules live in `.github/copilot-instructions.md`; this is the longer form.
 
+⚠️ **The source carries no comments** — they were removed deliberately. These two documents are
+therefore the only place the reasoning survives. When you change something load-bearing, record why
+here.
+
 ---
 
 ## 1. The shape of the system

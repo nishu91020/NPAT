@@ -9,7 +9,7 @@ interface LandingScreenProps {
   dayNumber: number;
   hasPlayedToday: boolean;
   playerName: string;
-  /** Prefilled from an invite link, so a guest only has to type their name. */
+
   initialCode: string;
   isBusy: boolean;
   error: string | null;
@@ -19,13 +19,6 @@ interface LandingScreenProps {
   onDismissError: () => void;
 }
 
-/**
- * The front door. Three ways in: play today's puzzle alone, or play it with
- * other people by creating a room or joining one.
- *
- * The two room buttons open a small form rather than navigating, because the only
- * things a room needs are a name and — to join — a code.
- */
 export const LandingScreen: React.FC<LandingScreenProps> = ({
   streak,
   dayNumber,

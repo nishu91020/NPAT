@@ -1,22 +1,5 @@
 import { BonusChallenge } from './contract';
 
-/**
- * The daily puzzle derivation, shared because both tiers run it.
- *
- * The client derives the puzzle optimistically so it can render before the
- * network answers, and the server derives it to serve /api/daily-challenge.
- * Both must agree exactly, so the hash lives here and is imported, never copied.
- */
-/**
- * The bonus challenges the game ships with, used when no model is configured
- * and whenever an AI generation fails.
- *
- * ⚠️ The first DETERMINISTIC_CHALLENGE_COUNT entries are FROZEN, in this order.
- * The daily derivation indexes into that prefix, so reordering or removing any
- * of them retroactively rewrites every past puzzle. Add new challenges by
- * APPENDING below the marker — the extras are drawn by room rounds and by the
- * random fallback, neither of which has to agree with history.
- */
 export const BONUS_CHALLENGES: BonusChallenge[] = [
   {
     id: 'long_words',
@@ -75,7 +58,6 @@ export const BONUS_CHALLENGES: BonusChallenge[] = [
     rule: { scope: 'name', checkKind: 'none', checkValue: '' },
   },
 
-  // ── End of the frozen prefix. Append only below this line. ──
   {
     id: 'adjacent_vowels',
     title: 'Side By Side',
@@ -198,25 +180,13 @@ export const BONUS_CHALLENGES: BonusChallenge[] = [
   },
 ];
 
-/**
- * How many of BONUS_CHALLENGES the daily derivation may choose from.
- *
- * Pinned to the original seven so appending a challenge cannot change which one
- * a past date resolves to. The daily bonus is normally AI-generated and stored
- * per date anyway; this list is its fallback, and a fallback that rewrites
- * history the moment someone adds an entry is worse than a small one.
- */
 export const DETERMINISTIC_CHALLENGE_COUNT = 7;
 
 const AVAILABLE_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'R', 'S', 'T', 'V', 'W'];
 
-/**
- * Deterministically generate daily puzzle details based on date string YYYY-MM-DD
- */
 export function getDailyPuzzleData(dateStr?: string) {
   const today = dateStr || new Date().toISOString().split('T')[0];
-  
-  // Simple seed generator from date string
+
   let hash = 0;
   for (let i = 0; i < today.length; i++) {
     hash = (hash << 5) - hash + today.charCodeAt(i);
@@ -225,11 +195,9 @@ export function getDailyPuzzleData(dateStr?: string) {
   const positiveHash = Math.abs(hash);
 
   const letterIndex = positiveHash % AVAILABLE_LETTERS.length;
-  // Indexes the frozen prefix, never the whole array — see the comment on
-  // DETERMINISTIC_CHALLENGE_COUNT. Widening this rewrites every past puzzle.
+
   const challengeIndex = (positiveHash >> 3) % DETERMINISTIC_CHALLENGE_COUNT;
-  
-  // Calculate Day Number from Epoch (e.g., 2026-01-01)
+
   const epoch = new Date('2026-01-01').getTime();
   const currentDate = new Date(today).getTime();
   const diffDays = Math.max(1, Math.floor((currentDate - epoch) / (1000 * 60 * 60 * 24)) + 1);
@@ -243,13 +211,6 @@ export function getDailyPuzzleData(dateStr?: string) {
   };
 }
 
-/**
- * A random puzzle, for rounds that are not the daily one.
- *
- * Rooms draw their letter this way — each round its own, skipping the one just
- * played. Only `letter` is read by the caller; the rest of the shape is kept so
- * this stays interchangeable with `getDailyPuzzleData`.
- */
 export function getRandomPuzzleData(excludeLetter?: string) {
   const filtered = AVAILABLE_LETTERS.filter((l) => l !== excludeLetter);
   const letter = filtered[Math.floor(Math.random() * filtered.length)];
@@ -263,4 +224,3 @@ export function getRandomPuzzleData(excludeLetter?: string) {
     timeLimitSeconds: 60,
   };
 }
-

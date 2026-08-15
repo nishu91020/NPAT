@@ -1,15 +1,5 @@
-// Web Audio API Sound Synthesizer (No external audio files needed)
-
 let audioCtx: AudioContext | null = null;
 
-/**
- * Muting lives here rather than at the call sites.
- *
- * It used to be a `soundEnabled` prop threaded through components, checked in
- * two places and forgotten in eighteen — so the mute button silenced the timer
- * tick and the win jingle while every button click still beeped. A gate at the
- * source cannot be forgotten by a new call site.
- */
 let muted = false;
 
 export function setMuted(value: boolean): void {
@@ -51,7 +41,7 @@ export function playTickSound() {
     osc.start();
     osc.stop(ctx.currentTime + 0.04);
   } catch (e) {
-    // Ignore audio errors if blocked by browser policy
+
   }
 }
 
@@ -60,7 +50,7 @@ export function playSuccessSound() {
   if (!ctx) return;
   try {
     const now = ctx.currentTime;
-    const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
+    const notes = [523.25, 659.25, 783.99, 1046.50];
     notes.forEach((freq, idx) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();

@@ -63,7 +63,6 @@ describe('cachedPerDate', () => {
     await daily.forDate('2026-08-02', 'B');
     await daily.forDate('2026-08-03', 'C');
 
-    // The oldest date was evicted, so asking again regenerates.
     await daily.forDate('2026-08-01', 'A');
     expect(source.calls).toBe(4);
   });

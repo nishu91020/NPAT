@@ -119,8 +119,7 @@ describe('scoreVerdict', () => {
   });
 
   it('respects a judge that is stricter than the threshold', () => {
-    // A rule reading "all four answers" is not met by two, so a judge saying
-    // false overrules the count.
+
     const scored = scoreVerdict(
       verdict(
         {
@@ -136,8 +135,7 @@ describe('scoreVerdict', () => {
   });
 
   it('never lets a judge claim the challenge its own rulings contradict', () => {
-    // Observed live: the model asserted a match while its own feedback said
-    // otherwise. Both must agree.
+
     const scored = scoreVerdict(verdict({}, { bonusChallengeMet: true }), 60);
 
     expect(scored.bonusChallengeMet).toBe(false);
@@ -183,8 +181,6 @@ describe('evaluateRound', () => {
       stubJudge(verdict({ name: judgement({ valid: true }) }))
     );
 
-    // Only one of the four is valid, so the round earns its points and no
-    // speed bonus, however fast it was submitted.
     expect(scored.totalScore).toBe(10);
     expect(scored.speedBonus).toBe(0);
   });
@@ -212,8 +208,7 @@ describe('evaluateRound', () => {
   });
 
   it('drops a suggestion that would not itself have scored', async () => {
-    // Observed live: under H with a "double hh" rule, a rejected Name was
-    // offered "Rhythm" — wrong letter, no double h, and not a name.
+
     const scored = await evaluateRound(
       {
         letter: 'H',
@@ -237,9 +232,7 @@ describe('evaluateRound', () => {
   });
 
   it('advises a right answer that missed the bonus, and scores it as a miss', async () => {
-    // The bonus is worth SCORING.validAnswerWithBonus - SCORING.validAnswer per
-    // category, so an answer that was right but missed it lost points of its
-    // own and is exactly the case worth teaching.
+
     const scored = await evaluateRound(
       {
         letter: 'H',
@@ -260,7 +253,6 @@ describe('evaluateRound', () => {
       )
     );
 
-    // Hhampstead has the double h, so it needs no advice; the other three do.
     expect(scored.categories.name.suggestion).toBe('Hhoney');
     expect(scored.categories.animal.suggestion).toBe('Hhippo');
     expect(scored.categories.thing.suggestion).toBe('Hhammer');
@@ -329,10 +321,6 @@ describe('withFallback', () => {
   });
 });
 
-/**
- * The speed bonus rewards answering a round well, quickly — not merely
- * submitting quickly. Four blank answers used to score 20 points.
- */
 describe('the speed bonus and a wrong answer', () => {
   const fast = 15;
 

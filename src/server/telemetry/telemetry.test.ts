@@ -31,7 +31,6 @@ describe('resolveTelemetryConfig', () => {
   });
 });
 
-/** Stands in for the request span the auto instrumentation creates. */
 function fakeSpan() {
   const attributes: Record<string, unknown> = {};
   const exceptions: unknown[] = [];
@@ -56,8 +55,6 @@ describe('createAzureMonitorTelemetry', () => {
 
     telemetry.roundJudged({ judgedBy: 'heuristic', durationMs: 12, totalScore: 40 });
 
-    // The signal that matters: a rise in 'heuristic' means Foundry is failing
-    // while the game still looks healthy.
     expect(attributes['npat.judged_by']).toBe('heuristic');
     expect(attributes['npat.judge_duration_ms']).toBe(12);
     expect(attributes['npat.total_score']).toBe(40);

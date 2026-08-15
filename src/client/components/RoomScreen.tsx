@@ -20,12 +20,12 @@ import {
 
 interface RoomScreenProps {
   room: RoomView;
-  /** When `room` arrived, so the countdown measures against the server's clock. */
+
   fetchedAtMs: number;
   error: string | null;
   isBusy: boolean;
   onStartRound: () => void;
-  /** `auto` marks the submission the clock made, not the player. */
+
   onSubmit: (answers: UserAnswers, auto?: boolean) => void;
   onNextRound: () => void;
   onSetRounds: (totalRounds: number) => void;
@@ -208,8 +208,6 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
               : 'Waiting for the host to start the next round.'}
           </p>
 
-          {/* The match length. Settled before round one, because moving the finish
-              line mid-match would move it for people who have already raced. */}
           <div className="mt-6 inline-block border-l-4 border-indigo-600 pl-4 text-left">
             <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">
               Match length

@@ -1,13 +1,5 @@
 import type OpenAI from 'openai';
 
-/**
- * Everything that can go wrong asking a model for schema-conforming JSON.
- *
- * A named taxonomy rather than bare Errors, because callers act differently on
- * each: a content-filter rejection is permanent and must never be retried, a
- * truncation might succeed on a smaller prompt, and a malformed response means
- * the model ignored the schema.
- */
 export class CompletionError extends Error {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
@@ -15,12 +7,6 @@ export class CompletionError extends Error {
   }
 }
 
-/**
- * The content filter rejected the prompt or the response.
- *
- * Permanent for that content: retrying the same request unchanged fails
- * identically.
- */
 export class ContentFilterError extends CompletionError {
   readonly harmCategories: string[];
 
@@ -30,19 +16,14 @@ export class ContentFilterError extends CompletionError {
   }
 }
 
-/** The model declined to answer. */
 export class ModelRefusedError extends CompletionError {}
 
-/** The response hit the token limit, so the JSON is incomplete. */
 export class TruncatedCompletionError extends CompletionError {}
 
-/** The response carried no content at all. */
 export class EmptyCompletionError extends CompletionError {}
 
-/** Content came back, but it was not the JSON the schema required. */
 export class MalformedCompletionError extends CompletionError {}
 
-/** Recognises the documented content-filter rejection shape. */
 export function isContentFilterRejection(err: unknown): boolean {
   const anyErr = err as
     | { status?: number; code?: string; error?: { code?: string }; message?: string }
@@ -66,29 +47,17 @@ export function harmCategoriesFrom(err: unknown): string[] {
 }
 
 export interface CompletionRequest {
-  /** Fixed persona and rules. Kept stable so the provider can cache the prefix. */
+
   system: string;
-  /** The varying per-request data. */
+
   user: string;
-  /** Names the schema in the request; appears in provider logs. */
+
   schemaName: string;
-  /**
-   * JSON Schema in the strict-mode subset: `additionalProperties: false` on
-   * every object, every property in `required`, and no `maxLength` or numeric
-   * bounds — strict mode rejects them.
-   */
+
   schema: Record<string, unknown>;
   temperature: number;
 }
 
-/**
- * Asks a model for JSON matching a schema.
- *
- * The whole point is that a caller learns one method and gets the strict-mode
- * request shape, the response unwrapping, the full failure taxonomy and the
- * parse — none of which is domain knowledge, and all of which was previously
- * duplicated across adapters and had already drifted.
- */
 export interface StructuredCompleter {
   complete<T>(request: CompletionRequest): Promise<T>;
 }
@@ -103,8 +72,7 @@ export function createStructuredCompleter(
 
       try {
         response = await client.chat.completions.create({
-          // The deployment name, which is what the API's `model` expects — not
-          // the underlying model name.
+
           model: deployment,
           temperature: request.temperature,
           messages: [
@@ -121,7 +89,7 @@ export function createStructuredCompleter(
           },
         });
       } catch (err) {
-        // The filter can reject the prompt before the model ever sees it.
+
         if (isContentFilterRejection(err)) {
           throw new ContentFilterError(
             'Request rejected by the content filter',
@@ -138,7 +106,6 @@ export function createStructuredCompleter(
         throw new ModelRefusedError(`Model refused: ${choice.message.refusal}`);
       }
 
-      // The filter can also reject the response after generating it.
       if (choice.finish_reason === 'content_filter') {
         throw new ContentFilterError('Response rejected by the content filter');
       }
@@ -153,10 +120,7 @@ export function createStructuredCompleter(
       try {
         return JSON.parse(content) as T;
       } catch (err) {
-        // Without this a truncated or non-JSON response surfaces as a bare
-        // SyntaxError with no indication of which call produced it. The cause
-        // is kept because its message quotes the offending payload, which is
-        // what separates "the model wrote prose" from "a gateway returned HTML".
+
         throw new MalformedCompletionError(
           `Model returned content that was not valid JSON for schema "${request.schemaName}"`,
           { cause: err }

@@ -6,11 +6,6 @@ import {
   getRandomPuzzleData,
 } from './puzzle';
 
-/**
- * Captured from the derivation before the built-in pool was widened. The daily
- * puzzle for a past date must never change, so these are goldens, not
- * expectations to be updated when the code moves.
- */
 const FROZEN = [
   { date: '2026-01-01', letter: 'P', challengeId: 'famous_name', dayNumber: 1 },
   { date: '2026-03-15', letter: 'N', challengeId: 'world_place', dayNumber: 74 },
@@ -36,7 +31,6 @@ describe('getDailyPuzzleData', () => {
   it('only ever picks from the frozen prefix', () => {
     const frozenIds = BONUS_CHALLENGES.slice(0, DETERMINISTIC_CHALLENGE_COUNT).map((c) => c.id);
 
-    // A year of dates: appending a challenge must not leak into any of them.
     for (let day = 0; day < 365; day++) {
       const date = new Date(Date.UTC(2026, 0, 1) + day * 86_400_000).toISOString().split('T')[0];
 
@@ -45,8 +39,7 @@ describe('getDailyPuzzleData', () => {
   });
 
   it('keeps the frozen prefix in its original order', () => {
-    // Reordering these silently rewrites every past puzzle, which no test
-    // downstream of the index would catch.
+
     expect(BONUS_CHALLENGES.slice(0, DETERMINISTIC_CHALLENGE_COUNT).map((c) => c.id)).toEqual([
       'long_words',
       'india_focus',

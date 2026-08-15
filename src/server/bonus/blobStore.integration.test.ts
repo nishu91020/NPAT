@@ -4,13 +4,6 @@ import { createBlobStore } from './blobStore';
 import { DailyChallengeStore } from './store';
 import { BonusChallengeSource, cachedPerDate } from './types';
 
-/**
- * Runs against Azurite, which must already be listening. Skipped by default so
- * `npm test` needs no emulator; run `npm run test:integration` to include it.
- *
- * Note Azurite needs --skipApiVersionCheck: the storage SDK speaks a newer API
- * version than the emulator recognises, and rejects the request otherwise.
- */
 const CONNECTION = 'UseDevelopmentStorage=true';
 const enabled = process.env.RUN_AZURITE_TESTS === 'true';
 
@@ -29,7 +22,6 @@ function countingSource(label: string): BonusChallengeSource & { calls: number }
   return source;
 }
 
-/** A distinct date per run, so leftovers cannot make a test pass. */
 function uniqueDate(): string {
   return `2099-01-${String(Math.floor(Math.random() * 89) + 10)}-${Date.now()}`;
 }
@@ -42,7 +34,7 @@ describe.skipIf(!enabled)('blob store against Azurite', () => {
   });
 
   afterAll(async () => {
-    // Nothing to tear down: each test uses its own date.
+
   });
 
   it('round-trips a challenge', async () => {
@@ -75,7 +67,7 @@ describe.skipIf(!enabled)('blob store against Azurite', () => {
     const b = await cachedPerDate(() => late, { store }).forDate(date, 'S');
 
     expect(b).toEqual(a);
-    // The second replica read the stored value rather than generating.
+
     expect(late.calls).toBe(0);
   });
 

@@ -4,6 +4,11 @@ Daily "Name, Place, Animal, Thing" word puzzle. React 19 + Vite 6 + Tailwind v4 
 Express server that also proxies answer judging to a model on Microsoft Foundry, with a local
 heuristic judge as the fallback.
 
+⚠️ **The source carries no comments.** They were removed deliberately, so this file and
+`docs/ARCHITECTURE.md` are now the *only* record of why the code is shaped the way it is — and most of
+it is shaped by bugs that actually happened. Read both before changing anything load-bearing, and put
+new reasoning here rather than in a comment that will be stripped again.
+
 ## Commands
 
 ```bash
@@ -336,7 +341,7 @@ every button click still beeped. Never reintroduce a `soundEnabled` check around
 - **The `@` alias** maps to the repo root in both `tsconfig.json` and `vite.config.ts`, but nothing uses it;
   existing code imports relatively (`../utils/audio`).
 - **Do not change the HMR block in `vite.config.ts`.** It is driven by the `DISABLE_HMR` env var so AI Studio
-  can disable file watching during agent edits, and it carries an explicit "do not modify" comment.
+  can disable file watching during agent edits.
 - **SEO content is hand-maintained in two places**: the JSON-LD `WebApplication` + `FAQPage` blocks in
   `index.html` and the visible copy in `SeoFaqSection.tsx`. Both still hardcode scoring prose that has
   drifted from `SCORING` — the FAQ advertises "+5 to +10". Rendering these from `SCORING` is an open
