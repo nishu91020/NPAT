@@ -136,6 +136,21 @@ because challenges generated before it existed are still served from Blob storag
 Both judge failures were **intermittent**, so a single passing run proves nothing here. Re-run a live
 check several times before believing a prompt change fixed something.
 
+⚠️ **In a room, a `checkKind: 'none'` rule is settled once for the whole round, not once per player.**
+`scoreRound` judges every racer in a separate call — deliberately, so one player's content-filter
+rejection cannot take down everyone else's round — and a rule needing world knowledge ("at least 2
+answers must relate to a colour") is the one thing those independent calls cannot be trusted with:
+two players in one round were seen getting different bonus verdicts for equally good answers. So
+`sharedBonusRuling` in `src/server/referee/roundBonus.ts` asks `createAzureBonusAdjudicator` once,
+over every player's distinct answers together, at `temperature: 0`, and `applyBonusRuling` holds
+every player to that one ruling. Bonus authority runs least-trusted last: the shared ruling overrules
+the per-player judge, and `enforceBonusRule` overrules them both, so a mechanical rule is never
+adjudicated at all. It is skipped for a lone racer, for a mechanical rule, and when nothing is
+scoreable; a failed adjudication logs and falls back to the per-player rulings, because losing
+consistency must never cost anybody their round. Solo play passes no ruling — there is nobody to be
+inconsistent with. The adjudicator rules **only** on the bonus: validity and the target letter are
+settled elsewhere, and a ruling on a word nobody wrote is dropped rather than trusted.
+
 **Generated bonus challenges must pass two tests**, encoded in `BONUS_SYSTEM_PROMPT`: *possible*
 (never ask a category to be something it cannot be — no Name is a plant) and *actually extra* (a rule
 restating "starts with the target letter" is earned for free by every valid answer). Both were real
@@ -267,8 +282,23 @@ every button click still beeped. Never reintroduce a `soundEnabled` check around
   that seam: under a double-letter rule for S, `Sam` was advised as `Samm`. The prompt forbids
   inventing or padding words, but nothing in code can catch it.
 - **Streak math exists twice**: `App.tsx#handleSubmitAnswers` computes a streak for the result object,
-  while `storage.ts#recordGameCompletion` independently recomputes the persisted value. Update both.
-- **`judgedBy` is the provenance field, and it is persisted.** It is typed in `src/shared/contract.ts` and
+  while `storage.ts#recordGameCompletion` independently recomputes the persisted value. Update both.- **`judgedBy` is the provenance field, and it is persisted.** It is typed in `src/shared/contract.ts` and
+- ⚠️ **A room player id names a seat; the seat token owns it.** Ids are public — `toView` sends every
+  player's id to every player, and results carry them — so `authorize()` in `roomState.ts` checks the
+  server-issued `token`, and **every** room entry point goes through it, reads included. Authorising
+  on the id alone let anyone who read a room submit as another player (and `submit` is idempotent, so
+  the impersonated blank buried the real answers), act as the host, or mark a rival absent. The token
+  is issued once by `create`/`join`, returned as `RoomView.youToken` only to that caller, and kept in
+  `localStorage` under `npat_room_seat_v1` so a refresh can reclaim the seat.
+- **Judging is claimed for a *round*, not just a phase.** `claimStillHolds(room, roundNumber)` gates the
+  publish, because a claim that went stale during a slow model call can return to a room that is
+  judging the *next* round — publishing there scored one round twice and dropped the other.
+  `start` also authorises against the room as read *before* drawing a puzzle, since drawing one is an
+  AI call and a 403 afterwards has already paid for it.
+- **A room poll only writes when it has something to save.** `touch()` returns whether the heartbeat
+  is worth persisting (every ~5s, well inside `presenceTimeoutSeconds`); reaping and deadlines are
+  re-derived on every load, so a view is correct either way. Eight players polling used to mean ~5
+  conditional writes a second against one blob, which the judging publish has to win.- **`judgedBy` is the provenance field, and it is persisted.** It is typed in `src/shared/contract.ts` and
   optional only so rounds saved before it existed still parse. Because it lives inside saved rounds in
   `localStorage`, values from earlier releases arrive forever — `'gemini'` from the Gemini era, and
   `undefined` from before the field. Use `isAiJudged()` in `src/client/judgedBy.ts` rather than comparing

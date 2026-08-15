@@ -1,5 +1,6 @@
 import { BonusChallenge, BonusScope, CategoryKey } from '../../shared/contract';
 import { enforceBonusRule } from './bonusRule';
+import { NO_RULING, applyBonusRuling, type BonusRuling } from './roundBonus';
 import { enforceSuggestions } from './suggestion';
 import {
   CategoryJudgement,
@@ -113,10 +114,18 @@ export function scoreVerdict(
   };
 }
 
-/** The referee's interface — the one call shape for evaluating a round. */
+/**
+ * The referee's interface — the one call shape for evaluating a round.
+ *
+ * `ruling` is a bonus verdict already settled for a whole round of players, and
+ * is how several submissions judged in separate calls are held to one reading of
+ * a knowledge-based bonus rule. Solo play passes none: there is nobody to be
+ * inconsistent with.
+ */
 export async function evaluateRound(
   submission: RoundSubmission,
-  judge: Judge
+  judge: Judge,
+  ruling: BonusRuling = NO_RULING
 ): Promise<RoundEvaluation> {
   const verdict = await judge.judge({
     letter: submission.letter,
@@ -124,9 +133,18 @@ export async function evaluateRound(
     bonusChallenge: submission.bonusChallenge,
   });
 
+  // Bonus authority runs least-trusted last: the shared ruling overrules this
+  // player's judge, and the mechanical check below overrules them both.
+  const shared = applyBonusRuling(
+    verdict,
+    submission.answers,
+    submission.bonusChallenge,
+    ruling
+  );
+
   // Applied here rather than inside a judge, so every judge — including the
   // fallback — is held to the same rule.
-  const settled = enforceBonusRule(verdict, submission.answers, submission.bonusChallenge);
+  const settled = enforceBonusRule(shared, submission.answers, submission.bonusChallenge);
 
   // Suggestions are settled after the bonus, because whether one stands depends
   // on the rule the round was actually played under.

@@ -5,7 +5,10 @@ import { playClickSound } from '../audio';
 interface HeaderProps {
   streak: number;
   mode: 'daily' | 'practice';
+  /** Hidden on the landing screen, where the three big buttons are the way in. */
+  showModeSelector: boolean;
   onSelectMode: (mode: 'daily' | 'practice') => void;
+  onGoHome: () => void;
   onOpenStats: () => void;
   onOpenHelp: () => void;
   soundEnabled: boolean;
@@ -15,7 +18,9 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   streak,
   mode,
+  showModeSelector,
   onSelectMode,
+  onGoHome,
   onOpenStats,
   onOpenHelp,
   soundEnabled,
@@ -24,8 +29,17 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header id="main-header" className="w-full bg-white border-b-2 border-slate-200 sticky top-0 z-30 shadow-sm">
       <div className="max-w-5xl mx-auto px-3 sm:px-8 py-3 sm:py-4 flex flex-wrap items-center justify-between gap-3">
-        {/* App Branding */}
-        <div className="flex items-center gap-2 sm:gap-3">
+        {/* App Branding — also the way back to the front door */}
+        <button
+          id="header-home-btn"
+          type="button"
+          onClick={() => {
+            playClickSound();
+            onGoHome();
+          }}
+          title="Back to the start"
+          className="flex items-center gap-2 sm:gap-3 text-left min-h-[44px]"
+        >
           <div className="w-9 h-9 sm:w-10 sm:h-10 bg-indigo-600 text-white font-black text-xl sm:text-2xl flex items-center justify-center shadow-[3px_3px_0px_0px_rgba(79,70,229,0.3)] tracking-tighter shrink-0">
             L
           </div>
@@ -40,41 +54,43 @@ export const Header: React.FC<HeaderProps> = ({
               Name • Place • Animal • Thing
             </p>
           </div>
-        </div>
+        </button>
 
-        {/* Mode Selector */}
-        <div className="flex items-center bg-slate-100 p-1 border border-slate-200 text-xs font-extrabold uppercase tracking-wider">
-          <button
-            id="mode-daily-btn"
-            onClick={() => {
-              playClickSound();
-              onSelectMode('daily');
-            }}
-            className={`min-h-[44px] px-3 py-1.5 transition-all duration-150 flex items-center gap-1.5 ${
-              mode === 'daily'
-                ? 'bg-indigo-600 text-white font-black shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Daily</span>
-          </button>
-          <button
-            id="mode-practice-btn"
-            onClick={() => {
-              playClickSound();
-              onSelectMode('practice');
-            }}
-            className={`min-h-[44px] px-3 py-1.5 transition-all duration-150 flex items-center gap-1.5 ${
-              mode === 'practice'
-                ? 'bg-indigo-600 text-white font-black shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            <span>Practice</span>
-          </button>
-        </div>
+        {/* Mode Selector — only while a round is in play */}
+        {showModeSelector && (
+          <div className="flex items-center bg-slate-100 p-1 border border-slate-200 text-xs font-extrabold uppercase tracking-wider">
+            <button
+              id="mode-daily-btn"
+              onClick={() => {
+                playClickSound();
+                onSelectMode('daily');
+              }}
+              className={`min-h-[44px] px-3 py-1.5 transition-all duration-150 flex items-center gap-1.5 ${
+                mode === 'daily'
+                  ? 'bg-indigo-600 text-white font-black shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Daily</span>
+            </button>
+            <button
+              id="mode-practice-btn"
+              onClick={() => {
+                playClickSound();
+                onSelectMode('practice');
+              }}
+              className={`min-h-[44px] px-3 py-1.5 transition-all duration-150 flex items-center gap-1.5 ${
+                mode === 'practice'
+                  ? 'bg-indigo-600 text-white font-black shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Practice</span>
+            </button>
+          </div>
+        )}
 
         {/* Action Controls & Streak */}
         <div className="flex items-center gap-1.5 sm:gap-2">
