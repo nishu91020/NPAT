@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import type {
   BonusChallenge,
   RoomResults,
@@ -9,13 +10,17 @@ import { evaluateRound, sharedBonusRuling, type BonusAdjudicator, type Judge } f
 import { createMemoryRoomStore } from './memoryStore';
 import {
   RoomError,
+  authorize,
   backToLobby,
   canClaimJudging,
   claimJudging,
+  claimStillHolds,
+  canSetRounds,
   createRoom,
   findPlayer,
   generateRoomCode,
   isExpired,
+  isMatchComplete,
   join,
   maybeEndRound,
   newMatch,
@@ -28,7 +33,13 @@ import {
   toView,
   touch,
 } from './roomState';
-import { RoomVersionConflict, type Room, type RoomStore, type StoredRoom } from './types';
+import {
+  RoomVersionConflict,
+  type PlayerSeat,
+  type Room,
+  type RoomStore,
+  type StoredRoom,
+} from './types';
 
 export interface RoomServiceDeps {
   store?: RoomStore;
@@ -53,6 +64,21 @@ export interface RoomServiceDeps {
  * the caller is polling anyway and will be back in a moment.
  */
 const MAX_WRITE_ATTEMPTS = 6;
+
+/**
+ * How hard the publish tries before giving up.
+ *
+ * Higher than the rest, because losing this race is not like losing any other:
+ * the model call has already been made and paid for, and dropping its results
+ * leaves the room stuck in `judging` until the claim goes stale and the whole
+ * round is judged again.
+ */
+const MAX_PUBLISH_ATTEMPTS = 12;
+
+/** The secret a seat is proved with. Server-issued, so a client cannot pick it. */
+function newSeatToken(): string {
+  return randomUUID();
+}
 
 /**
  * The room service — everything the HTTP layer needs, and nothing about HTTP.
@@ -117,15 +143,24 @@ export function createRoomService({
    * Load, change, save — redone from a fresh read when someone else saved first.
    *
    * `apply` must be safe to run more than once: it is handed a room that may have
-   * moved on, and its job is to state the change again against that room.
+   * moved on, and its job is to state the change again against that room. It may
+   * also report that nothing needs saving, and then no write is attempted at all:
+   * a poll that only restates what the store already says is pure contention for
+   * every other writer, and the judging publish is the writer that must not lose.
    */
   async function mutate<T>(
     code: string,
-    apply: (room: Room) => T
+    apply: (room: Room) => T,
+    {
+      attempts = MAX_WRITE_ATTEMPTS,
+      worthSaving = () => true,
+    }: { attempts?: number; worthSaving?: (result: T, room: Room) => boolean } = {}
   ): Promise<{ room: Room; result: T }> {
-    for (let attempt = 0; attempt < MAX_WRITE_ATTEMPTS; attempt++) {
+    for (let attempt = 0; attempt < attempts; attempt++) {
       const stored = await load(code);
       const result = apply(stored.room);
+
+      if (!worthSaving(result, stored.room)) return { room: stored.room, result };
 
       try {
         await store.put(stored);
@@ -136,6 +171,25 @@ export function createRoomService({
     }
 
     throw new RoomError('That room is busy right now. Try again.', 409);
+  }
+
+  /**
+   * Brings a room up to date for a reader, saving only when that changed something.
+   *
+   * The reap and the deadline are re-derived on every load, so a view is correct
+   * whether or not the last one was written down; what has to reach the store is
+   * a heartbeat fresh enough to keep the seat, and a round that has ended.
+   */
+  async function readAndAdvance(code: string, seat: PlayerSeat): Promise<Room> {
+    const { room } = await mutate(code, (current) => {
+      authorize(current, seat);
+      const before = current.phase;
+      const beat = touch(current, seat.playerId, now());
+      maybeEndRound(current, now());
+      return beat || current.phase !== before;
+    }, { worthSaving: (changed) => changed });
+
+    return room;
   }
 
   /**
@@ -200,10 +254,10 @@ export function createRoomService({
   /**
    * Takes the judging if it is going spare, and sees it through.
    *
-   * ⚠️ The claim is written before the model is called, and the phase is checked
-   * again before the results are published. Judging adds a round to the standings,
-   * so a second replica doing it in parallel would score the round twice — and
-   * unlike a lost write, that damage is permanent.
+   * ⚠️ The claim is written before the model is called, and it is checked again —
+   * against the round it was taken for — before the results are published.
+   * Judging adds a round to the standings, so publishing twice, or publishing
+   * into the wrong round, is damage no later write can undo.
    */
   async function judgeIfUnclaimed(code: string): Promise<void> {
     let claimed: Room;
@@ -222,14 +276,29 @@ export function createRoomService({
       throw err;
     }
 
+    // Which round these results describe. A claim that goes stale mid-call may
+    // come back to a room that is judging an entirely different round.
+    const judgedRound = claimed.round?.number ?? 0;
     const results = await scoreRound(claimed);
 
-    await mutate(code, (current) => {
-      // The claim goes stale on a slow model call, so another replica may have
-      // published already. Whoever got there first is the one that counts.
-      if (current.phase !== 'judging') return;
-      publishResults(current, results);
-    });
+    try {
+      await mutate(
+        code,
+        (current) => {
+          // The claim goes stale on a slow model call, so another replica may
+          // have published this round already, and the match may have moved on
+          // to the next one. Either way these results no longer belong here.
+          if (!claimStillHolds(current, judgedRound)) return;
+          publishResults(current, results);
+        },
+        { attempts: MAX_PUBLISH_ATTEMPTS }
+      );
+    } catch (err) {
+      // Nothing left to do but let the claim go stale so someone judges again;
+      // swallowing it would tell the caller their round was fine when it is not.
+      console.error(`Publishing round ${judgedRound} of room ${code} failed:`, err);
+      throw err;
+    }
   }
 
   /**
@@ -251,16 +320,20 @@ export function createRoomService({
 
   return {
     async create(playerId: string, name: string): Promise<RoomView> {
+      // Minted once, outside the retry: a redo must hand the caller back the same
+      // seat token it is about to be told to use.
+      const token = newSeatToken();
+
       // Four characters is ~1M codes; collisions are handled rather than assumed
       // away, and against a shared store the only reliable test is the write.
       for (let attempt = 0; attempt < 8; attempt++) {
         const at = now();
         const room = createRoom(generateRoomCode(), at);
-        join(room, playerId, name, at);
+        join(room, playerId, name, at, token);
 
         try {
           await store.create(room);
-          return toView(room, playerId, at);
+          return withToken(toView(room, playerId, at), token);
         } catch (err) {
           if (!(err instanceof RoomVersionConflict)) throw err;
         }
@@ -271,7 +344,7 @@ export function createRoomService({
         if (await freeIfDead(room.code)) {
           try {
             await store.create(room);
-            return toView(room, playerId, at);
+            return withToken(toView(room, playerId, at), token);
           } catch (err) {
             if (!(err instanceof RoomVersionConflict)) throw err;
           }
@@ -281,80 +354,116 @@ export function createRoomService({
       throw new RoomError('Could not allocate a room code.', 503);
     },
 
-    async join(code: string, playerId: string, name: string): Promise<RoomView> {
-      const { room } = await mutate(code, (current) => join(current, playerId, name, now()));
-      return toView(room, playerId, now());
+    /**
+     * Takes a seat, or reclaims the one this browser already holds.
+     *
+     * A returning player presents the token they were issued — a refresh looks
+     * exactly like leaving, so reclaiming a seat has to be possible — and anyone
+     * presenting the wrong one is refused rather than handed the seat.
+     */
+    async join(code: string, playerId: string, name: string, token?: string): Promise<RoomView> {
+      const seatToken = token?.trim() || newSeatToken();
+
+      const { room } = await mutate(code, (current) =>
+        join(current, playerId, name, now(), seatToken)
+      );
+      return withToken(toView(room, playerId, now()), seatToken);
     },
 
     /** The polling endpoint: also what keeps a player marked present. */
-    async view(code: string, playerId: string): Promise<RoomView> {
-      const { room } = await mutate(code, (current) => {
-        touch(current, playerId, now());
-        maybeEndRound(current, now());
-      });
-
-      return toView(await advance(code, room), playerId, now());
+    async view(code: string, seat: PlayerSeat): Promise<RoomView> {
+      const room = await readAndAdvance(code, seat);
+      return toView(await advance(code, room), seat.playerId, now());
     },
 
-    async start(code: string, playerId: string): Promise<RoomView> {
+    async start(code: string, seat: PlayerSeat): Promise<RoomView> {
+      const existing = await load(code);
+
+      // ⚠️ Checked against the room as read, before a puzzle is drawn. Drawing one
+      // is an AI call, and doing it first meant any caller who could name a live
+      // room code could spend one per request and be told 403 afterwards. The
+      // authority is still `startRound` inside the mutate — this only refuses
+      // early what would certainly be refused late.
+      const player = authorize(existing.room, seat);
+      if (!player.isHost) throw new RoomError('Only the host can start a round.', 403);
+      if (existing.room.phase !== 'lobby') throw new RoomError('A round is already running.', 409);
+      if (existing.room.roundsPlayed >= existing.room.totalRounds) {
+        throw new RoomError('This match is over. Start a new match to keep playing.', 409);
+      }
+
       // Drawn before the room is touched: a redo must not spend another model
       // call, nor hand the room a different letter the second time around.
-      const existing = await load(code);
       const puzzle = await nextPuzzle(existing.room.round?.letter);
 
       const { room } = await mutate(code, (current) => {
-        touch(current, playerId, now());
-        startRound(current, playerId, puzzle.letter, puzzle.bonusChallenge, now());
+        authorize(current, seat);
+        touch(current, seat.playerId, now());
+        startRound(current, seat.playerId, puzzle.letter, puzzle.bonusChallenge, now());
       });
 
-      return toView(room, playerId, now());
+      return toView(room, seat.playerId, now());
     },
 
-    async submit(code: string, playerId: string, answers: UserAnswers): Promise<RoomView> {
+    async submit(code: string, seat: PlayerSeat, answers: UserAnswers): Promise<RoomView> {
       const { room } = await mutate(code, (current) => {
-        touch(current, playerId, now());
-        submit(current, playerId, answers, now());
+        // ⚠️ The token is what stops one player submitting for another. Ids are
+        // public, and `submit` is idempotent, so an impersonated blank submission
+        // would have silently discarded the real one when it arrived.
+        authorize(current, seat);
+        touch(current, seat.playerId, now());
+        submit(current, seat.playerId, answers, now());
       });
 
-      return toView(await advance(code, room), playerId, now());
+      return toView(await advance(code, room), seat.playerId, now());
     },
 
-    async next(code: string, playerId: string): Promise<RoomView> {
+    async next(code: string, seat: PlayerSeat): Promise<RoomView> {
       const { room } = await mutate(code, (current) => {
-        touch(current, playerId, now());
-        backToLobby(current, playerId);
+        authorize(current, seat);
+        touch(current, seat.playerId, now());
+        backToLobby(current, seat.playerId);
       });
-      return toView(room, playerId, now());
+      return toView(room, seat.playerId, now());
     },
 
     /** The host choosing how long the match runs, before the first round. */
-    async setRounds(code: string, playerId: string, totalRounds: number): Promise<RoomView> {
+    async setRounds(code: string, seat: PlayerSeat, totalRounds: number): Promise<RoomView> {
       const { room } = await mutate(code, (current) => {
-        touch(current, playerId, now());
-        setTotalRounds(current, playerId, totalRounds);
+        authorize(current, seat);
+        touch(current, seat.playerId, now());
+        setTotalRounds(current, seat.playerId, totalRounds);
       });
-      return toView(room, playerId, now());
+      return toView(room, seat.playerId, now());
     },
 
     /** Wipes the standings and lets the host set the length again. */
-    async newMatch(code: string, playerId: string): Promise<RoomView> {
+    async newMatch(code: string, seat: PlayerSeat): Promise<RoomView> {
       const { room } = await mutate(code, (current) => {
-        touch(current, playerId, now());
-        newMatch(current, playerId);
+        authorize(current, seat);
+        touch(current, seat.playerId, now());
+        newMatch(current, seat.playerId);
       });
-      return toView(room, playerId, now());
+      return toView(room, seat.playerId, now());
     },
 
-    async leave(code: string, playerId: string): Promise<void> {
+    async leave(code: string, seat: PlayerSeat): Promise<void> {
       // Best effort: the room also drops players who stop polling, so a room that
       // has already closed under them is nothing to report.
       await mutate(code, (current) => {
-        const player = findPlayer(current, playerId);
-        if (player) player.present = false;
+        // ⚠️ Authorised like everything else. Without the token, "leave" was a way
+        // to mark a rival absent: the round then stops waiting for them and they
+        // are scored blank.
+        const player = authorize(current, seat);
+        player.present = false;
         reapAbsent(current, now());
       }).catch(() => undefined);
     },
   };
+}
+
+/** Attaches the caller's seat token — only ever to the reply that issued it. */
+function withToken(view: RoomView, token: string): RoomView {
+  return { ...view, youToken: token };
 }
 
 export type RoomService = ReturnType<typeof createRoomService>;

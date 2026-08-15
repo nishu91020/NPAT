@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { BonusChallenge, UserAnswers } from '../../shared/contract';
+import type { BonusChallenge, RoomView, UserAnswers } from '../../shared/contract';
 import { createRoomService } from './service';
 import { createMemoryRoomStore } from './memoryStore';
 import {
   RoomError,
+  authorize,
   backToLobby,
   canSetRounds,
   createRoom,
@@ -24,7 +25,7 @@ import {
   toView,
   touch,
 } from './roomState';
-import { ROOM_RULES, RoomVersionConflict, type Room } from './types';
+import { ROOM_RULES, RoomVersionConflict, type PlayerSeat, type Room } from './types';
 import type { Judge } from '../referee';
 
 const CHALLENGE: BonusChallenge = {
@@ -36,13 +37,24 @@ const CHALLENGE: BonusChallenge = {
 };
 
 const GOOD: UserAnswers = { name: 'Sam', place: 'Spain', animal: 'Snake', thing: 'Spoon' };
+const ROUND_TWO: UserAnswers = { name: 'Sonic', place: 'Sweden', animal: 'Seal', thing: 'Sword' };
+const BLANK: UserAnswers = { name: '', place: '', animal: '', thing: '' };
+
+/** The seat a create/join reply hands back, as every later request must present it. */
+const seatOf = (view: RoomView): PlayerSeat => ({
+  playerId: view.youId,
+  token: view.youToken!,
+});
 
 const T0 = 1_000_000;
 const sec = (n: number) => T0 + n * 1000;
 
+/** Seat tokens follow the ids, so a test can present the right one — or a wrong one. */
+const tokenFor = (playerId: string) => `token-${playerId}`;
+
 function roomWith(names: string[]) {
   const room = createRoom('TEST', T0);
-  names.forEach((name, i) => join(room, `p${i + 1}`, name, T0));
+  names.forEach((name, i) => join(room, `p${i + 1}`, name, T0, tokenFor(`p${i + 1}`)));
   return room;
 }
 
@@ -175,7 +187,7 @@ describe('submissions', () => {
   it('refuses a player who is not in the round', () => {
     const room = roomWith(['Ana']);
     startRound(room, 'p1', 'S', CHALLENGE, T0);
-    join(room, 'late', 'Late', sec(5));
+    join(room, 'late', 'Late', sec(5), tokenFor('late'));
     expect(() => submit(room, 'late', GOOD, sec(6))).toThrow(RoomError);
   });
 });
@@ -227,11 +239,32 @@ describe('presence and the room lifecycle', () => {
   it('lets a refreshing player reclaim their seat rather than joining twice', () => {
     const room = roomWith(['Ana']);
     leave(room, 'p1', sec(1));
-    join(room, 'p1', 'Ana', sec(3));
+    join(room, 'p1', 'Ana', sec(3), tokenFor('p1'));
 
     expect(room.players).toHaveLength(1);
     expect(room.players[0].present).toBe(true);
     expect(room.players[0].isHost).toBe(true);
+  });
+
+  it('refuses a seat to anyone who cannot present its token', () => {
+    // Player ids are public — every view carries them — so an id is a claim, not
+    // a proof. Taking someone's seat renamed it and handed over their round.
+    const room = roomWith(['Ana']);
+    leave(room, 'p1', sec(1));
+
+    expect(() => join(room, 'p1', 'Impostor', sec(3), 'guessed')).toThrow(/taken/i);
+    expect(room.players[0].name).toBe('Ana');
+  });
+
+  it('recognises a player by their token, and refuses one with the wrong one', () => {
+    const room = roomWith(['Ana', 'Ben']);
+
+    expect(authorize(room, { playerId: 'p1', token: tokenFor('p1') }).name).toBe('Ana');
+    expect(() => authorize(room, { playerId: 'p1', token: tokenFor('p2') })).toThrow(/not in this room/i);
+    expect(() => authorize(room, { playerId: 'p1', token: '' })).toThrow(/not in this room/i);
+    expect(() => authorize(room, { playerId: 'ghost', token: tokenFor('ghost') })).toThrow(
+      /not in this room/i
+    );
   });
 
   it('does not close the instant the last player leaves, so a refresh survives', () => {
@@ -263,8 +296,8 @@ describe('presence and the room lifecycle', () => {
 
   it('refuses a ninth player', () => {
     const room = createRoom('FULL', T0);
-    for (let i = 0; i < ROOM_RULES.maxPlayers; i++) join(room, `p${i}`, `P${i}`, T0);
-    expect(() => join(room, 'extra', 'Extra', T0)).toThrow(/full/i);
+    for (let i = 0; i < ROOM_RULES.maxPlayers; i++) join(room, `p${i}`, `P${i}`, T0, tokenFor(`p${i}`));
+    expect(() => join(room, 'extra', 'Extra', T0, tokenFor('extra'))).toThrow(/full/i);
   });
 
   it('only lets the host start a round', () => {
@@ -277,7 +310,7 @@ describe('presence and the room lifecycle', () => {
   it('keeps a late joiner out of the round in progress but in the next one', () => {
     const room = roomWith(['Ana', 'Ben']);
     startRound(room, 'p1', 'S', CHALLENGE, T0);
-    join(room, 'late', 'Late', sec(5));
+    join(room, 'late', 'Late', sec(5), tokenFor('late'));
 
     expect(room.round?.racers).not.toContain('late');
 
@@ -453,17 +486,22 @@ describe('the room service end to end', () => {
     const created = await rooms.create('host', 'Ana');
     expect(created.code).toMatch(/^[A-Z2-9]{4}$/);
     expect(created.youAreHost).toBe(true);
+    // The seat token is issued once, to the caller that took the seat.
+    expect(created.youToken).toBeTruthy();
 
     const joined = await rooms.join(created.code, 'guest', 'Ben');
     expect(joined.players).toHaveLength(2);
     expect(joined.youAreHost).toBe(false);
 
-    const started = await rooms.start(created.code, 'host');
+    const host = seatOf(created);
+    const guest = seatOf(joined);
+
+    const started = await rooms.start(created.code, host);
     expect(started.phase).toBe('racing');
     expect(started.round?.letter).toBe('S');
 
-    await rooms.submit(created.code, 'host', GOOD);
-    const done = await rooms.submit(created.code, 'guest', GOOD);
+    await rooms.submit(created.code, host, GOOD);
+    const done = await rooms.submit(created.code, guest, GOOD);
 
     // Everyone submitted, so the round is judged without waiting for the clock.
     expect(done.phase).toBe('reveal');
@@ -472,19 +510,19 @@ describe('the room service end to end', () => {
     expect(done.results?.rows[0].rank).toBe(1);
     expect(done.standings).toHaveLength(2);
 
-    const lobby = await rooms.next(created.code, 'host');
+    const lobby = await rooms.next(created.code, host);
     expect(lobby.phase).toBe('lobby');
     expect(lobby.roundsPlayed).toBe(1);
   });
 
   it('scores duplicate answers identically — no penalty for clashing', async () => {
     const rooms = service();
-    const { code } = await rooms.create('a', 'Ana');
-    await rooms.join(code, 'b', 'Ben');
-    await rooms.start(code, 'a');
+    const created = await rooms.create('a', 'Ana');
+    const joined = await rooms.join(created.code, 'b', 'Ben');
+    await rooms.start(created.code, seatOf(created));
 
-    await rooms.submit(code, 'a', GOOD);
-    const view = await rooms.submit(code, 'b', GOOD);
+    await rooms.submit(created.code, seatOf(created), GOOD);
+    const view = await rooms.submit(created.code, seatOf(joined), GOOD);
 
     const scores = view.results!.rows.map((r) => r.totalScore);
     expect(new Set(scores).size).toBe(1);
@@ -497,27 +535,152 @@ describe('the room service end to end', () => {
 
   it('refuses a non-host trying to start', async () => {
     const rooms = service();
-    const { code } = await rooms.create('a', 'Ana');
-    await rooms.join(code, 'b', 'Ben');
-    await expect(rooms.start(code, 'b')).rejects.toThrow(/host/i);
+    const created = await rooms.create('a', 'Ana');
+    const joined = await rooms.join(created.code, 'b', 'Ben');
+    await expect(rooms.start(created.code, seatOf(joined))).rejects.toThrow(/host/i);
+  });
+
+  /* ⚠️ A player id is public: it is in every view, and in every result row. These
+   * cover the difference between naming a seat and owning one. */
+  it('refuses every action to a caller holding somebody else\'s id', async () => {
+    const rooms = service();
+    const created = await rooms.create('a', 'Ana');
+    const joined = await rooms.join(created.code, 'b', 'Ben');
+    const code = created.code;
+
+    // Ben has read the room, so he knows Ana is 'a' and is the host.
+    const stolen: PlayerSeat = { playerId: 'a', token: joined.youToken! };
+    const guessed: PlayerSeat = { playerId: 'a', token: 'not-the-token' };
+
+    await expect(rooms.view(code, stolen)).rejects.toThrow(/not in this room/i);
+    await expect(rooms.start(code, stolen)).rejects.toThrow(/not in this room/i);
+    await expect(rooms.setRounds(code, guessed, 5)).rejects.toThrow(/not in this room/i);
+    await expect(rooms.newMatch(code, guessed)).rejects.toThrow(/not in this room/i);
+    await expect(rooms.next(code, guessed)).rejects.toThrow(/not in this room/i);
+    await expect(rooms.submit(code, stolen, GOOD)).rejects.toThrow(/not in this room/i);
+  });
+
+  it('will not let one player submit for another, which would bury the real answers', async () => {
+    const rooms = service();
+    const created = await rooms.create('a', 'Ana');
+    const joined = await rooms.join(created.code, 'b', 'Ben');
+    const code = created.code;
+    await rooms.start(code, seatOf(created));
+
+    // Ben submits blanks as Ana. `submit` is idempotent, so if this landed, Ana's
+    // real answers would be silently dropped when they arrived.
+    await expect(
+      rooms.submit(code, { playerId: 'a', token: joined.youToken! }, BLANK)
+    ).rejects.toThrow(/not in this room/i);
+
+    await rooms.submit(code, seatOf(created), GOOD);
+    const done = await rooms.submit(code, seatOf(joined), GOOD);
+
+    const ana = done.results!.rows.find((row) => row.playerId === 'a');
+    expect(ana?.answers).toEqual(GOOD);
+    expect(ana?.totalScore).toBeGreaterThan(0);
+  });
+
+  it('will not let one player mark another absent', async () => {
+    const rooms = service();
+    const created = await rooms.create('a', 'Ana');
+    const joined = await rooms.join(created.code, 'b', 'Ben');
+
+    // Leaving is best effort and never reports, so the room is what to check.
+    await rooms.leave(created.code, { playerId: 'a', token: joined.youToken! });
+
+    const view = await rooms.view(created.code, seatOf(created));
+    expect(view.players.map((p) => p.id).sort()).toEqual(['a', 'b']);
+  });
+
+  it('draws no puzzle for a caller who was never allowed to start a round', async () => {
+    // ⚠️ Drawing one is an AI call. Doing it before the host check meant anyone
+    // who could name a live room code could spend one per request.
+    let drawn = 0;
+    const rooms = createRoomService({
+      judge: stubJudge,
+      nextPuzzle: async () => {
+        drawn++;
+        return { letter: 'S', bonusChallenge: CHALLENGE };
+      },
+      now: () => Date.now(),
+    });
+
+    const created = await rooms.create('a', 'Ana');
+    const joined = await rooms.join(created.code, 'b', 'Ben');
+
+    await expect(rooms.start(created.code, seatOf(joined))).rejects.toThrow(/host/i);
+    await expect(
+      rooms.start(created.code, { playerId: 'a', token: 'guessed' })
+    ).rejects.toThrow(/not in this room/i);
+    expect(drawn).toBe(0);
+
+    await rooms.start(created.code, seatOf(created));
+    expect(drawn).toBe(1);
+
+    // A round already running is refused just as cheaply.
+    await expect(rooms.start(created.code, seatOf(created))).rejects.toThrow(/already running/i);
+    expect(drawn).toBe(1);
+  });
+
+  it('does not save the room on every poll, which the judging has to write past', async () => {
+    // ⚠️ Eight players polling every 1.5s meant ~5 conditional writes a second
+    // against one blob, and the publish is the writer that must not lose that
+    // race: losing it throws away a model call that has already been paid for.
+    const store = createMemoryRoomStore();
+    let clock = T0;
+    let writes = 0;
+    const counting = {
+      ...store,
+      async put(stored: Parameters<typeof store.put>[0]) {
+        writes++;
+        return store.put(stored);
+      },
+    };
+
+    const rooms = createRoomService({
+      store: counting,
+      judge: stubJudge,
+      nextPuzzle: async () => ({ letter: 'S', bonusChallenge: CHALLENGE }),
+      now: () => clock,
+    });
+
+    const created = await rooms.create('p1', 'Ana');
+    const host = seatOf(created);
+    writes = 0;
+
+    // A second of polling, which is what a client actually does.
+    for (let i = 0; i < 4; i++) {
+      clock = T0 + i * 250;
+      await rooms.view(created.code, host);
+    }
+    expect(writes).toBe(0);
+
+    // A heartbeat still has to reach the store often enough to hold the seat.
+    clock = sec(6);
+    await rooms.view(created.code, host);
+    expect(writes).toBe(1);
+    expect((await store.get(created.code))!.room.players[0].lastSeenAt).toBe(sec(6));
   });
 
   it('plays exactly the number of rounds the host asked for, then closes the match', async () => {
     const rooms = service();
-    const { code } = await rooms.create('a', 'Ana');
+    const created = await rooms.create('a', 'Ana');
+    const host = seatOf(created);
+    const code = created.code;
 
-    const set = await rooms.setRounds(code, 'a', 1);
+    const set = await rooms.setRounds(code, host, 1);
     expect(set.totalRounds).toBe(1);
     expect(set.canSetRounds).toBe(true);
 
-    await rooms.start(code, 'a');
-    const done = await rooms.submit(code, 'a', GOOD);
+    await rooms.start(code, host);
+    const done = await rooms.submit(code, host, GOOD);
 
     expect(done.phase).toBe('reveal');
     expect(done.matchComplete).toBe(true);
-    await expect(rooms.next(code, 'a')).rejects.toThrow(/match is over/i);
+    await expect(rooms.next(code, host)).rejects.toThrow(/match is over/i);
 
-    const fresh = await rooms.newMatch(code, 'a');
+    const fresh = await rooms.newMatch(code, host);
     expect(fresh.phase).toBe('lobby');
     expect(fresh.roundsPlayed).toBe(0);
     expect(fresh.matchComplete).toBe(false);
@@ -611,7 +774,7 @@ describe('a room shared between replicas', () => {
           // Somebody is sitting in a room under this code right now.
           squatted = room.code;
           const live = createRoom(room.code, T0);
-          join(live, 'p1', 'Ana', T0);
+          join(live, 'p1', 'Ana', T0, 'token-p1');
           await store.create(live);
           throw new RoomVersionConflict(room.code);
         }
@@ -670,14 +833,18 @@ describe('a room shared between replicas', () => {
     const { services, advanceTo } = replicas();
     const [a, b] = services;
 
-    const { code } = await a.create('p1', 'Ana');
-    await b.join(code, 'p2', 'Ben');
-    await a.start(code, 'p1');
+    const created = await a.create('p1', 'Ana');
+    const code = created.code;
+    const joined = await b.join(code, 'p2', 'Ben');
+    await a.start(code, seatOf(created));
 
     advanceTo(10);
-    await Promise.all([a.submit(code, 'p1', GOOD), b.submit(code, 'p2', GOOD)]);
+    await Promise.all([
+      a.submit(code, seatOf(created), GOOD),
+      b.submit(code, seatOf(joined), GOOD),
+    ]);
 
-    const view = await a.view(code, 'p1');
+    const view = await a.view(code, seatOf(created));
     expect(view.phase).toBe('reveal');
     expect(view.results?.rows).toHaveLength(2);
     expect(view.results?.rows.map((r) => r.answers.name)).toEqual(['Sam', 'Sam']);
@@ -692,18 +859,23 @@ describe('a room shared between replicas', () => {
     const { services, judged, advanceTo } = replicas(3);
     const [a, b, c] = services;
 
-    const { code } = await a.create('p1', 'Ana');
-    await b.join(code, 'p2', 'Ben');
-    await a.start(code, 'p1');
+    const created = await a.create('p1', 'Ana');
+    const code = created.code;
+    const joined = await b.join(code, 'p2', 'Ben');
+    await a.start(code, seatOf(created));
 
     advanceTo(10);
-    await a.submit(code, 'p1', GOOD);
+    await a.submit(code, seatOf(created), GOOD);
 
     // The clock runs out, and every replica sees it on its next poll.
     advanceTo(ROOM_RULES.roundSeconds + ROOM_RULES.submitGraceSeconds + 1);
-    await Promise.all([a.view(code, 'p1'), b.view(code, 'p2'), c.view(code, 'p1')]);
+    await Promise.all([
+      a.view(code, seatOf(created)),
+      b.view(code, seatOf(joined)),
+      c.view(code, seatOf(created)),
+    ]);
 
-    const view = await a.view(code, 'p1');
+    const view = await a.view(code, seatOf(created));
     expect(view.phase).toBe('reveal');
     expect(view.results?.rows).toHaveLength(2);
     // One round each, not one per replica that happened to look.
@@ -715,21 +887,106 @@ describe('a room shared between replicas', () => {
     const { store, services, advanceTo } = replicas();
     const [a, b] = services;
 
-    const { code } = await a.create('p1', 'Ana');
-    await a.start(code, 'p1');
+    const created = await a.create('p1', 'Ana');
+    const code = created.code;
+    await a.start(code, seatOf(created));
 
     advanceTo(10);
-    await a.submit(code, 'p1', GOOD);
+    await a.submit(code, seatOf(created), GOOD);
 
     // Rewind the room to a replica that claimed the judging and then died.
     const stored = await store.get(code);
     stored!.room.phase = 'judging';
     stored!.room.results = null;
     stored!.room.judgingSince = sec(10) - ROOM_RULES.judgingClaimSeconds * 1000 - 1000;
+    stored!.room.judgingRound = 1;
     await store.put(stored!);
 
-    const view = await b.view(code, 'p1');
+    const view = await b.view(code, seatOf(created));
     expect(view.phase).toBe('reveal');
     expect(view.results?.rows).toHaveLength(1);
+  });
+
+  /**
+   * ⚠️ The other half of a stale claim: the replica that lost it coming back.
+   *
+   * Its results describe a round that has already been judged, published and
+   * left behind. Publishing them into the room it finds — which by then is
+   * judging an entirely different round — scored one round twice in the
+   * standings and threw the new one away, and no later write undoes either.
+   */
+  it('drops the results of a claim that came back to a room which has moved on', async () => {
+    const store = createMemoryRoomStore();
+    let clock = T0;
+
+    // Two hung model calls: A's on round one, B's on round two. Between them the
+    // room does everything the returning replica is about to walk back into.
+    let releaseA: () => void = () => undefined;
+    let releaseB: () => void = () => undefined;
+    const hangA = new Promise<void>((resolve) => (releaseA = resolve));
+    const hangB = new Promise<void>((resolve) => (releaseB = resolve));
+
+    const hangingJudge = (wait: Promise<void>, onCall: number): Judge => {
+      let calls = 0;
+      return {
+        async judge(request) {
+          if (++calls === onCall) await wait;
+          return stubJudge.judge(request);
+        },
+      };
+    };
+
+    const deps = {
+      store,
+      nextPuzzle: async () => ({ letter: 'S', bonusChallenge: CHALLENGE }),
+      now: () => clock,
+    };
+    const a = createRoomService({ ...deps, judge: hangingJudge(hangA, 1) });
+    const b = createRoomService({ ...deps, judge: hangingJudge(hangB, 2) });
+
+    const created = await a.create('p1', 'Ana');
+    const code = created.code;
+    const host = seatOf(created);
+
+    /** Waits for the room in the store to reach a state, without a real clock. */
+    const settle = async (want: (room: Room) => boolean) => {
+      for (let i = 0; i < 100; i++) {
+        const stored = await store.get(code);
+        if (stored && want(stored.room)) return stored.room;
+      }
+      throw new Error('the room never reached the state this test needs');
+    };
+
+    // Round one. A claims the judging and hangs inside the model call.
+    await a.start(code, host);
+    clock = sec(10);
+    const stuckOnRoundOne = a.submit(code, host, GOOD);
+    await settle((room) => room.judgingSince !== null && room.judgingRound === 1);
+
+    // The claim goes stale, so B judges round one and publishes it.
+    clock = sec(10 + ROOM_RULES.judgingClaimSeconds + 1);
+    const revealed = await b.view(code, host);
+    expect(revealed.phase).toBe('reveal');
+
+    // Round two races, ends, and B is now the one holding the judging.
+    await b.next(code, host);
+    await b.start(code, host);
+    clock = sec(80);
+    const stuckOnRoundTwo = b.submit(code, host, ROUND_TWO);
+    await settle((room) => room.judgingRound === 2);
+
+    // A's call finally returns, to a room judging a round it knows nothing about.
+    releaseA();
+    await stuckOnRoundOne;
+
+    releaseB();
+    const final = await stuckOnRoundTwo;
+
+    // Two rounds played, two rounds counted — and the round on show is the one
+    // that was actually just played.
+    expect(final.phase).toBe('reveal');
+    expect(final.results?.rows[0].answers.name).toBe(ROUND_TWO.name);
+    expect(final.standings[0].roundsPlayed).toBe(2);
+    expect((await store.get(code))!.room.roundsPlayed).toBe(2);
   });
 });

@@ -8,6 +8,9 @@ import {
   loadTodayDailyResult,
   loadPlayerIdentity,
   savePlayerIdentity,
+  loadRoomSeat,
+  saveRoomSeat,
+  clearRoomSeat,
 } from './storage';
 import {
   ROOM_POLL_MS,
@@ -21,6 +24,7 @@ import {
   setRoomRounds,
   startRoomRound,
   submitRoomAnswers,
+  type PlayerSeat,
 } from './roomClient';
 import { playSuccessSound, playFailureSound, playClickSound, setMuted } from './audio';
 import { Header } from './components/Header';
@@ -68,6 +72,15 @@ export default function App() {
    * which reads as "I cannot create another room".
    */
   const roomEpoch = useRef<number>(0);
+  /**
+   * The token proving this browser owns its seat, issued by the server when the
+   * seat was taken and required by every request that acts on the room.
+   *
+   * Kept in a ref rather than state because every room call reads it and none of
+   * them should re-run when it changes; mirrored into `localStorage` so a refresh
+   * can reclaim the seat instead of being refused as an impostor.
+   */
+  const seatToken = useRef<string>('');
   // An invite link (/?room=CODE) prefills the join form.
   const [inviteCode] = useState<string>(() => {
     if (typeof window === 'undefined') return '';
@@ -151,9 +164,18 @@ export default function App() {
   // Rooms: create, join, poll, play, leave.
   const applyRoom = (next: RoomView) => {
     roomFetchedAt.current = Date.now();
+    // Only create and join carry a token, and only to the caller they issued it
+    // to. Every other reply leaves the one already held alone.
+    if (next.youToken) {
+      seatToken.current = next.youToken;
+      saveRoomSeat({ code: next.code, token: next.youToken });
+    }
     setRoom(next);
     setRoomError(null);
   };
+
+  /** This browser's claim to its seat, as every room request has to present it. */
+  const seat = (): PlayerSeat => ({ playerId: player.id, token: seatToken.current });
 
   /**
    * Gives up the seat this browser holds, if it holds one.
@@ -164,7 +186,9 @@ export default function App() {
    */
   const releaseRoom = () => {
     roomEpoch.current += 1;
-    if (room) leaveRoom(room.code, player.id);
+    if (room) leaveRoom(room.code, seat());
+    seatToken.current = '';
+    clearRoomSeat();
     setRoom(null);
   };
 
@@ -215,16 +239,21 @@ export default function App() {
   };
 
   const handleJoinRoom = async (name: string, code: string) => {
+    // ⚠️ Read before giving up the current seat: `releaseRoom` clears the stored
+    // one, and a refresh mid-room is exactly a join with the token that proves
+    // the seat is already yours. Reading it afterwards always found nothing, and
+    // the server rightly refused the seat to a player who could not prove it.
+    const held = loadRoomSeat(code);
     const identity = rememberName(name);
     releaseRoom();
     setRoomError(null);
 
-    if (await runRoom(() => joinRoom(code, identity.id, name))) setView('room');
+    if (await runRoom(() => joinRoom(code, identity.id, name, held))) setView('room');
   };
 
   const handleStartRoomRound = async () => {
     if (!room) return;
-    await runRoom(() => startRoomRound(room.code, player.id));
+    await runRoom(() => startRoomRound(room.code, seat()));
   };
 
   const handleRoomSubmit = async (answers: UserAnswers, auto = false) => {
@@ -232,22 +261,22 @@ export default function App() {
     // An auto-submit races the server ending the round; losing that race is
     // normal and the server has already taken the player's answers as blank.
     // Telling them off for it would only be noise.
-    await runRoom(() => submitRoomAnswers(room.code, player.id, answers), { silent: auto });
+    await runRoom(() => submitRoomAnswers(room.code, seat(), answers), { silent: auto });
   };
 
   const handleSetRoomRounds = async (totalRounds: number) => {
     if (!room) return;
-    await runRoom(() => setRoomRounds(room.code, player.id, totalRounds));
+    await runRoom(() => setRoomRounds(room.code, seat(), totalRounds));
   };
 
   const handleNewRoomMatch = async () => {
     if (!room) return;
-    await runRoom(() => newRoomMatch(room.code, player.id));
+    await runRoom(() => newRoomMatch(room.code, seat()));
   };
 
   const handleNextRoomRound = async () => {
     if (!room) return;
-    await runRoom(() => nextRoomRound(room.code, player.id));
+    await runRoom(() => nextRoomRound(room.code, seat()));
   };
 
   const handleLeaveRoom = () => {
@@ -272,15 +301,20 @@ export default function App() {
 
     const id = window.setInterval(async () => {
       try {
-        const next = await fetchRoom(code, player.id);
+        // Read per poll, never captured: the token arrives with the reply that
+        // created or joined the room, which may land after this was armed.
+        const next = await fetchRoom(code, { playerId: player.id, token: seatToken.current });
         if (epoch !== roomEpoch.current) return;
         roomFetchedAt.current = Date.now();
         setRoom(next);
       } catch (err) {
         if (epoch !== roomEpoch.current) return;
-        // A room that has closed under us is worth surfacing; a blip is not.
-        if (err instanceof RoomRequestError && err.status === 404) {
-          setRoomError('That room has closed.');
+        // A room that has closed under us is worth surfacing; a blip is not. So
+        // is a seat we no longer hold — polling on would never recover it.
+        if (err instanceof RoomRequestError && (err.status === 404 || err.status === 403)) {
+          setRoomError(err.status === 403 ? 'You are no longer in that room.' : 'That room has closed.');
+          seatToken.current = '';
+          clearRoomSeat();
           setRoom(null);
           setView('landing');
         }

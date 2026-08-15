@@ -36,10 +36,25 @@ export interface RoomRoundState {
 export interface RoomPlayerState {
   id: string;
   name: string;
+  /**
+   * The secret that proves a caller is this player. Server-issued, never shown
+   * to anybody else, and required by every request that acts on the room.
+   *
+   * ⚠️ The id cannot do this job: it is published to every player in the room, in
+   * views and in results. Authorising on the id alone let any player submit for
+   * another, act as the host, or mark a rival absent.
+   */
+  token: string;
   isHost: boolean;
   present: boolean;
   joinedAt: number;
   lastSeenAt: number;
+}
+
+/** A caller's claim to a seat: who they say they are, and their proof of it. */
+export interface PlayerSeat {
+  playerId: string;
+  token: string;
 }
 
 export interface RoomStandingState {
@@ -72,6 +87,16 @@ export interface Room {
    * `judging` for as long as it survives, with no one able to take over.
    */
   judgingSince: number | null;
+  /**
+   * Which round the current claim is judging, or null when nobody holds one.
+   *
+   * ⚠️ The phase alone does not identify a round. A replica whose model call hung
+   * past `judgingClaimSeconds` loses the claim, another judges and publishes, and
+   * the match moves on — and when the slow call finally returned it found the
+   * room in `judging` again, for the NEXT round, and published the old round's
+   * rows into it. That scored one round twice and threw the new one away.
+   */
+  judgingRound: number | null;
 }
 
 /**

@@ -1,6 +1,16 @@
 import type { RoomView, UserAnswers } from '../shared/contract';
 
 /**
+ * A caller's claim to a seat: the id that names it, and the server-issued token
+ * that proves it. Ids are public — every player sees them — so the token is what
+ * separates a player from anyone who merely read the room.
+ */
+export interface PlayerSeat {
+  playerId: string;
+  token: string;
+}
+
+/**
  * Talking to a room.
  *
  * Polling, not sockets. It is the only transport that survives this app running
@@ -49,49 +59,58 @@ export function createRoom(playerId: string, name: string): Promise<RoomView> {
   return post<RoomView>('/api/rooms', { playerId, name });
 }
 
-export function joinRoom(code: string, playerId: string, name: string): Promise<RoomView> {
-  return post<RoomView>(`/api/rooms/${encodeURIComponent(code)}/join`, { playerId, name });
+/**
+ * Takes a seat, presenting the token for this room if this browser already holds
+ * one — that is what lets a refresh reclaim its seat rather than being refused.
+ */
+export function joinRoom(
+  code: string,
+  playerId: string,
+  name: string,
+  token: string
+): Promise<RoomView> {
+  return post<RoomView>(`/api/rooms/${encodeURIComponent(code)}/join`, { playerId, name, token });
 }
 
-export function fetchRoom(code: string, playerId: string): Promise<RoomView> {
-  const query = new URLSearchParams({ playerId });
+export function fetchRoom(code: string, seat: PlayerSeat): Promise<RoomView> {
+  const query = new URLSearchParams({ playerId: seat.playerId, token: seat.token });
   return request<RoomView>(`/api/rooms/${encodeURIComponent(code)}?${query}`);
 }
 
-export function startRoomRound(code: string, playerId: string): Promise<RoomView> {
-  return post<RoomView>(`/api/rooms/${encodeURIComponent(code)}/start`, { playerId });
+export function startRoomRound(code: string, seat: PlayerSeat): Promise<RoomView> {
+  return post<RoomView>(`/api/rooms/${encodeURIComponent(code)}/start`, seat);
 }
 
 export function submitRoomAnswers(
   code: string,
-  playerId: string,
+  seat: PlayerSeat,
   answers: UserAnswers
 ): Promise<RoomView> {
   // No time is sent: the server started the round, so it owns the clock.
-  return post<RoomView>(`/api/rooms/${encodeURIComponent(code)}/submit`, { playerId, answers });
+  return post<RoomView>(`/api/rooms/${encodeURIComponent(code)}/submit`, { ...seat, answers });
 }
 
-export function nextRoomRound(code: string, playerId: string): Promise<RoomView> {
-  return post<RoomView>(`/api/rooms/${encodeURIComponent(code)}/next`, { playerId });
+export function nextRoomRound(code: string, seat: PlayerSeat): Promise<RoomView> {
+  return post<RoomView>(`/api/rooms/${encodeURIComponent(code)}/next`, seat);
 }
 
 /** Host only, and only before the first round — the server enforces both. */
 export function setRoomRounds(
   code: string,
-  playerId: string,
+  seat: PlayerSeat,
   totalRounds: number
 ): Promise<RoomView> {
-  return post<RoomView>(`/api/rooms/${encodeURIComponent(code)}/rounds`, { playerId, totalRounds });
+  return post<RoomView>(`/api/rooms/${encodeURIComponent(code)}/rounds`, { ...seat, totalRounds });
 }
 
-export function newRoomMatch(code: string, playerId: string): Promise<RoomView> {
-  return post<RoomView>(`/api/rooms/${encodeURIComponent(code)}/new-match`, { playerId });
+export function newRoomMatch(code: string, seat: PlayerSeat): Promise<RoomView> {
+  return post<RoomView>(`/api/rooms/${encodeURIComponent(code)}/new-match`, seat);
 }
 
-export function leaveRoom(code: string, playerId: string): void {
+export function leaveRoom(code: string, seat: PlayerSeat): void {
   // Best effort on the way out — the room also drops players who stop polling,
   // so nothing depends on this arriving.
-  const body = JSON.stringify({ playerId });
+  const body = JSON.stringify(seat);
   if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
     navigator.sendBeacon(
       `/api/rooms/${encodeURIComponent(code)}/leave`,

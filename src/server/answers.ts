@@ -6,6 +6,22 @@ const ANSWER_KEYS: CategoryKey[] = ['name', 'place', 'animal', 'thing'];
 export const MAX_ANSWER_LENGTH = 60;
 
 /**
+ * Everything that has no business in a one-word answer.
+ *
+ * ⚠️ Answers are interpolated into prompts, and the round-wide bonus adjudicator
+ * puts several players' words in one call whose ruling binds all of them. A
+ * newline is what turns a word into a line of its own, and a line of its own is
+ * what a model reads as an instruction — so an answer cannot be allowed to
+ * contain one, and neither can the control characters that do the same job.
+ */
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g;
+
+/** One word, on one line. Never the shape of an instruction. */
+function readOneWord(value: string): string {
+  return value.replace(CONTROL_CHARACTERS, ' ').slice(0, MAX_ANSWER_LENGTH);
+}
+
+/**
  * Turns whatever arrived on the wire into exactly four strings.
  *
  * ⚠️ Everything downstream assumes an answer is a string — the target letter
@@ -37,7 +53,7 @@ export function readAnswers(raw: unknown): { answers: UserAnswers; error?: strin
       return { answers, error: `The ${key} answer must be text.` };
     }
 
-    answers[key] = value.slice(0, MAX_ANSWER_LENGTH);
+    answers[key] = readOneWord(value);
   }
 
   return { answers };

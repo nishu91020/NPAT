@@ -7,7 +7,7 @@ import type {
   UserAnswers,
 } from '../../shared/contract';
 import { ROOM_ROUND_CHOICES } from '../../shared/contract';
-import { ROOM_RULES, type Room, type RoomPlayerState } from './types';
+import { ROOM_RULES, type PlayerSeat, type Room, type RoomPlayerState } from './types';
 
 /**
  * The room state machine.
@@ -47,6 +47,7 @@ export function createRoom(code: string, now: number): Room {
     createdAt: now,
     emptySince: now,
     judgingSince: null,
+    judgingRound: null,
   };
 }
 
@@ -110,10 +111,21 @@ function ensureHost(room: Room): void {
   for (const p of room.players) p.isHost = p.id === heir.id;
 }
 
-export function join(room: Room, playerId: string, name: string, now: number): Room {
+export function join(
+  room: Room,
+  playerId: string,
+  name: string,
+  now: number,
+  token: string
+): Room {
   const existing = findPlayer(room, playerId);
 
   if (existing) {
+    // ⚠️ A seat is reclaimed by the token, not by the id. Player ids are public —
+    // they are in every view — so an id alone is a claim, not a proof, and
+    // accepting it let anyone take over another player's seat and rename it.
+    if (existing.token !== token) throw new RoomError('That seat is taken.', 403);
+
     // A refresh is indistinguishable from leaving, so the same client id
     // reclaims its seat rather than appearing as a second player.
     existing.present = true;
@@ -131,6 +143,7 @@ export function join(room: Room, playerId: string, name: string, now: number): R
   room.players.push({
     id: playerId,
     name,
+    token,
     isHost: presentPlayers(room).length === 0,
     present: true,
     joinedAt: now,
@@ -139,6 +152,22 @@ export function join(room: Room, playerId: string, name: string, now: number): R
   room.emptySince = null;
   ensureHost(room);
   return room;
+}
+
+/**
+ * The player a caller is, or a refusal.
+ *
+ * Every action on a room goes through here. Membership is proved by the token
+ * issued when the seat was taken, never by the id, and a wrong token is refused
+ * in exactly the same words as an unknown one — telling an attacker which of the
+ * two they got wrong is telling them how close they are.
+ */
+export function authorize(room: Room, seat: PlayerSeat): RoomPlayerState {
+  const player = findPlayer(room, seat.playerId);
+  if (!player || !seat.token || player.token !== seat.token) {
+    throw new RoomError('You are not in this room.', 403);
+  }
+  return player;
 }
 
 export function leave(room: Room, playerId: string, now: number): Room {
@@ -152,14 +181,36 @@ export function leave(room: Room, playerId: string, now: number): Room {
   return room;
 }
 
-export function touch(room: Room, playerId: string, now: number): Room {
+/**
+ * How stale a stored heartbeat may get before it is worth a write.
+ *
+ * Every poll used to save the room, so eight players polling every 1.5s meant
+ * ~5 conditional writes a second against one blob — contention that a judging
+ * replica has to win to publish its results. A heartbeat only has to be fresher
+ * than `presenceTimeoutSeconds` to keep a player in their seat, so most polls
+ * change nothing anybody needs saved.
+ */
+const PRESENCE_WRITE_INTERVAL_SECONDS = 5;
+
+/**
+ * Marks a player present, and says whether that is worth persisting.
+ *
+ * A `false` return means the room in the store already says everything this poll
+ * would have said.
+ */
+export function touch(room: Room, playerId: string, now: number): boolean {
   const player = findPlayer(room, playerId);
-  if (player) {
-    player.present = true;
-    player.lastSeenAt = now;
-    room.emptySince = null;
-  }
-  return room;
+  if (!player) return false;
+
+  const wasPresent = player.present;
+  const stale = (now - player.lastSeenAt) / 1000 >= PRESENCE_WRITE_INTERVAL_SECONDS;
+  const wasEmpty = room.emptySince !== null;
+
+  player.present = true;
+  player.lastSeenAt = now;
+  room.emptySince = null;
+
+  return !wasPresent || stale || wasEmpty;
 }
 
 /**
@@ -208,6 +259,7 @@ export function newMatch(room: Room, playerId: string): Room {
   room.standings = {};
   room.roundsPlayed = 0;
   room.judgingSince = null;
+  room.judgingRound = null;
   return room;
 }
 
@@ -345,7 +397,21 @@ export function canClaimJudging(room: Room, now: number): boolean {
 
 export function claimJudging(room: Room, now: number): Room {
   room.judgingSince = now;
+  room.judgingRound = room.round?.number ?? null;
   return room;
+}
+
+/**
+ * Whether a claim taken for one round may still publish into this room.
+ *
+ * ⚠️ The phase is not enough. A claim that went stale while the model was slow
+ * can come back to a room that has since judged that round, revealed it, and
+ * started another — also in `judging`. Publishing then scored the old round a
+ * second time into the standings and discarded the new one, which no later write
+ * can undo.
+ */
+export function claimStillHolds(room: Room, roundNumber: number): boolean {
+  return room.phase === 'judging' && room.round?.number === roundNumber;
 }
 
 /** Publishes a judged round: the results, the standings, and the reveal. */
@@ -354,6 +420,7 @@ export function publishResults(room: Room, results: RoomResults): Room {
   recordResults(room, results.rows);
   room.phase = 'reveal';
   room.judgingSince = null;
+  room.judgingRound = null;
   return room;
 }
 

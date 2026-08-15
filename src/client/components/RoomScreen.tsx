@@ -53,6 +53,8 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
   const [, setNowTick] = useState(0);
   const roundNumber = room.round?.number ?? 0;
   const lastRoundRef = useRef(roundNumber);
+  /** Whether the clock has already submitted for the round now in progress. */
+  const hasAutoSubmitted = useRef(false);
 
   useEffect(() => {
     const id = window.setInterval(() => setNowTick((t) => t + 1), 1000);
@@ -79,6 +81,12 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
     if (roundNumber !== lastRoundRef.current) {
       lastRoundRef.current = roundNumber;
       setAnswers(EMPTY_ANSWERS);
+      // ⚠️ Re-armed on any CHANGE of round, never on the round's number. Round
+      // numbers restart at 1 for a new match, and this component is not
+      // remounted in between — so a guard compared against the number stayed
+      // set from match one and round one of match two silently never
+      // auto-submitted, scoring blank for answers the player had typed.
+      hasAutoSubmitted.current = false;
     }
   }, [roundNumber]);
 
@@ -103,12 +111,11 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
    * makes a timeout keep the answers. Guarded per round, because the countdown
    * re-renders once a second and this must fire exactly once.
    */
-  const autoSubmittedRound = useRef(0);
   useEffect(() => {
     if (room.phase !== 'racing' || !youAreRacing || youHaveSubmitted) return;
-    if (timeLeft > 0 || autoSubmittedRound.current === roundNumber) return;
+    if (timeLeft > 0 || hasAutoSubmitted.current) return;
 
-    autoSubmittedRound.current = roundNumber;
+    hasAutoSubmitted.current = true;
     onSubmit(answersRef.current, true);
   }, [timeLeft, room.phase, youAreRacing, youHaveSubmitted, roundNumber, onSubmit]);
 

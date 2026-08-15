@@ -94,9 +94,11 @@ export function createBlobRoomStore(
         // on the next write, so it is never interpreted here.
         return { room, version: response.etag ?? null };
       } catch (err) {
-        if (err instanceof RestError && (err.statusCode === 404 || err.statusCode === 403)) {
-          return null;
-        }
+        // ⚠️ Only 404 means "no such room". A 403 is this deployment's identity
+        // missing its role on the container, and reporting that as an absent room
+        // sent every player the words "That room has closed." while the real
+        // fault — a missing role assignment — never surfaced anywhere.
+        if (err instanceof RestError && err.statusCode === 404) return null;
         throw err;
       }
     },

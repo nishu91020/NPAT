@@ -187,4 +187,15 @@ export interface RoomView {
   /** Who the caller is, so the client never has to guess which player is theirs. */
   youId: string;
   youAreHost: boolean;
+  /**
+   * The secret that proves this caller owns their seat. Sent only in the reply to
+   * creating or joining, and only to that caller.
+   *
+   * ⚠️ A room's player ids are public — every player sees every other player's id
+   * in `players`, and results carry them too. So the id names a seat, it does not
+   * prove ownership of one: without this token, anyone who read a view could
+   * submit answers as another player, start a round as the host, or mark someone
+   * absent. Every request that acts on a room carries it.
+   */
+  youToken?: string;
 }

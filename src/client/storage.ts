@@ -3,6 +3,7 @@ import { GameResult, GameStats } from './types';
 const STATS_KEY = 'npat_game_stats_v1';
 const TODAY_RESULT_KEY = 'npat_today_result_v1';
 const PLAYER_KEY = 'npat_player_v1';
+const SEAT_KEY = 'npat_room_seat_v1';
 
 /**
  * Who this browser is, in a room.
@@ -44,6 +45,47 @@ export function savePlayerIdentity(identity: PlayerIdentity): void {
     localStorage.setItem(PLAYER_KEY, JSON.stringify(identity));
   } catch (e) {
     console.error('Failed to save player identity to localStorage', e);
+  }
+}
+
+/**
+ * The seat this browser holds in a room, and the token that proves it is theirs.
+ *
+ * Persisted because a refresh has to be able to reclaim the seat: the id names it
+ * but no longer proves it — the server issues a token when the seat is taken and
+ * refuses anybody who cannot present it. One seat at a time, matching the app's
+ * "one room at a time" rule, so a stored seat for another room is simply dropped.
+ */
+export interface RoomSeat {
+  code: string;
+  token: string;
+}
+
+export function loadRoomSeat(code: string): string {
+  try {
+    const raw = localStorage.getItem(SEAT_KEY);
+    if (!raw) return '';
+    const parsed = JSON.parse(raw) as Partial<RoomSeat>;
+    if (parsed?.code?.toUpperCase() === code.toUpperCase() && parsed.token) return parsed.token;
+  } catch {
+    // A corrupt entry just means joining as a newcomer.
+  }
+  return '';
+}
+
+export function saveRoomSeat(seat: RoomSeat): void {
+  try {
+    localStorage.setItem(SEAT_KEY, JSON.stringify(seat));
+  } catch (e) {
+    console.error('Failed to save room seat to localStorage', e);
+  }
+}
+
+export function clearRoomSeat(): void {
+  try {
+    localStorage.removeItem(SEAT_KEY);
+  } catch {
+    // Nothing to do: a stale seat is refused by the server anyway.
   }
 }
 

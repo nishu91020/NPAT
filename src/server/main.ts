@@ -36,7 +36,7 @@ import {
   resolveAzureConfig,
   type AzureClient,
 } from './azure';
-import { RoomError, createBlobRoomStore, createMemoryRoomStore, createRoomService, type RoomService, type RoomStore } from './rooms';
+import { RoomError, createBlobRoomStore, createMemoryRoomStore, createRoomService, type PlayerSeat, type RoomService, type RoomStore } from './rooms';
 
 import {
   createAzureMonitorTelemetry,
@@ -303,14 +303,32 @@ function roomService(): RoomService {
 }
 
 /** Rejects junk before it reaches the room service. */
-function readIdentity(req: express.Request): { playerId: string; name: string } {
+function readIdentity(req: express.Request): { playerId: string; name: string; token: string } {
   const playerId = typeof req.body?.playerId === 'string' ? req.body.playerId.trim() : '';
   const rawName = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+  const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
 
   if (!playerId) throw new RoomError('Missing player id.', 400);
   if (!rawName) throw new RoomError('Please enter a name.', 400);
 
-  return { playerId, name: rawName.slice(0, 20) };
+  return { playerId, name: rawName.slice(0, 20), token };
+}
+
+/**
+ * The caller's claim to a seat.
+ *
+ * ⚠️ Both halves are required on every request that acts on a room. Player ids
+ * are public — they ride in every view and in every result row — so the token is
+ * the only thing separating a player from someone who merely read the room.
+ */
+function readSeat(req: express.Request): PlayerSeat {
+  const playerId = typeof req.body?.playerId === 'string' ? req.body.playerId : '';
+  const token = typeof req.body?.token === 'string' ? req.body.token : '';
+
+  if (!playerId) throw new RoomError('Missing player id.', 400);
+  if (!token) throw new RoomError('You are not in this room.', 403);
+
+  return { playerId, token };
 }
 
 /** One place to turn a RoomError into a response, so every route reads the same. */
@@ -336,8 +354,8 @@ app.post('/api/rooms', async (req, res) => {
 
 app.post('/api/rooms/:code/join', async (req, res) => {
   await handleRoom(res, async () => {
-    const { playerId, name } = readIdentity(req);
-    return roomService().join(req.params.code, playerId, name);
+    const { playerId, name, token } = readIdentity(req);
+    return roomService().join(req.params.code, playerId, name, token);
   });
 });
 
@@ -346,42 +364,40 @@ app.post('/api/rooms/:code/join', async (req, res) => {
 app.get('/api/rooms/:code', async (req, res) => {
   await handleRoom(res, async () => {
     const playerId = typeof req.query.playerId === 'string' ? req.query.playerId : '';
+    const token = typeof req.query.token === 'string' ? req.query.token : '';
     if (!playerId) throw new RoomError('Missing player id.', 400);
-    return roomService().view(req.params.code, playerId);
+    // Reading a room is a member's privilege too: the view carries every player's
+    // id, their names, and — at the reveal — everybody's answers.
+    if (!token) throw new RoomError('You are not in this room.', 403);
+    return roomService().view(req.params.code, { playerId, token });
   });
 });
 
 app.post('/api/rooms/:code/start', async (req, res) => {
   await handleRoom(res, async () => {
-    const playerId = typeof req.body?.playerId === 'string' ? req.body.playerId : '';
-    if (!playerId) throw new RoomError('Missing player id.', 400);
-    return roomService().start(req.params.code, playerId);
+    return roomService().start(req.params.code, readSeat(req));
   });
 });
 
 // How many rounds the match runs for. Host only, and only before round one.
 app.post('/api/rooms/:code/rounds', async (req, res) => {
   await handleRoom(res, async () => {
-    const playerId = typeof req.body?.playerId === 'string' ? req.body.playerId : '';
+    const seat = readSeat(req);
     const totalRounds = Number(req.body?.totalRounds);
-    if (!playerId) throw new RoomError('Missing player id.', 400);
     if (!Number.isInteger(totalRounds)) throw new RoomError('Missing round count.', 400);
-    return roomService().setRounds(req.params.code, playerId, totalRounds);
+    return roomService().setRounds(req.params.code, seat, totalRounds);
   });
 });
 
 app.post('/api/rooms/:code/new-match', async (req, res) => {
   await handleRoom(res, async () => {
-    const playerId = typeof req.body?.playerId === 'string' ? req.body.playerId : '';
-    if (!playerId) throw new RoomError('Missing player id.', 400);
-    return roomService().newMatch(req.params.code, playerId);
+    return roomService().newMatch(req.params.code, readSeat(req));
   });
 });
 
 app.post('/api/rooms/:code/submit', async (req, res) => {
   await handleRoom(res, async () => {
-    const playerId = typeof req.body?.playerId === 'string' ? req.body.playerId : '';
-    if (!playerId) throw new RoomError('Missing player id.', 400);
+    const seat = readSeat(req);
 
     // ⚠️ Held to the same shape as a solo round. These answers are scored by the
     // same referee, which takes them for strings — a number or an object used to
@@ -390,22 +406,21 @@ app.post('/api/rooms/:code/submit', async (req, res) => {
     if (parsed.error) throw new RoomError(parsed.error, 400);
 
     // The clock is the server's: nothing the client says about timing is read.
-    return roomService().submit(req.params.code, playerId, parsed.answers);
+    return roomService().submit(req.params.code, seat, parsed.answers);
   });
 });
 
 app.post('/api/rooms/:code/next', async (req, res) => {
   await handleRoom(res, async () => {
-    const playerId = typeof req.body?.playerId === 'string' ? req.body.playerId : '';
-    if (!playerId) throw new RoomError('Missing player id.', 400);
-    return roomService().next(req.params.code, playerId);
+    return roomService().next(req.params.code, readSeat(req));
   });
 });
 
 app.post('/api/rooms/:code/leave', async (req, res) => {
   await handleRoom(res, async () => {
     const playerId = typeof req.body?.playerId === 'string' ? req.body.playerId : '';
-    if (playerId) await roomService().leave(req.params.code, playerId);
+    const token = typeof req.body?.token === 'string' ? req.body.token : '';
+    if (playerId && token) await roomService().leave(req.params.code, { playerId, token });
     return { ok: true };
   });
 });

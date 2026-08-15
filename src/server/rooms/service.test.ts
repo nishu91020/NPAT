@@ -70,14 +70,16 @@ async function playRound(deps: { judge: Judge; bonusAdjudicator?: BonusAdjudicat
   });
 
   const created = await rooms.create('p1', 'Ada');
-  await rooms.join(created.code, 'p2', 'Bob');
-  await rooms.start(created.code, 'p1');
+  const joined = await rooms.join(created.code, 'p2', 'Bob');
+  const ada = { playerId: created.youId, token: created.youToken! };
+  const bob = { playerId: joined.youId, token: joined.youToken! };
+  await rooms.start(created.code, ada);
 
   // The same four answers from both players: any difference in their scores is
   // the referee's doing, not theirs.
-  await rooms.submit(created.code, 'p1', answers);
+  await rooms.submit(created.code, ada, answers);
   clock += 1000;
-  const view = await rooms.submit(created.code, 'p2', answers);
+  const view = await rooms.submit(created.code, bob, answers);
 
   expect(view.results).not.toBeNull();
   return view.results!;

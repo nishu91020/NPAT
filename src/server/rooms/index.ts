@@ -3,6 +3,7 @@ export { createBlobRoomStore } from './blobStore';
 export { createRoomService, type RoomService, type RoomServiceDeps } from './service';
 export {
   RoomError,
+  authorize,
   generateRoomCode,
   rankRows,
   createRoom,
@@ -18,6 +19,7 @@ export {
   isMatchComplete,
   canClaimJudging,
   claimJudging,
+  claimStillHolds,
   publishResults,
   reapAbsent,
   isExpired,
@@ -30,6 +32,7 @@ export {
 export {
   ROOM_RULES,
   RoomVersionConflict,
+  type PlayerSeat,
   type Room,
   type RoomStore,
   type StoredRoom,
