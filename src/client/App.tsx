@@ -31,8 +31,7 @@ export default function App() {
   const rooms = useRoom({ onExited: () => setView('landing') });
 
   const todayStr = new Date().toISOString().split('T')[0];
-
-  // The audio module owns the gate, so a new call site cannot forget it.
+  
   useEffect(() => {
     setMuted(!soundEnabled);
   }, [soundEnabled]);
@@ -62,8 +61,6 @@ export default function App() {
 
   const handleGoHome = () => {
     setSubmitError(null);
-    // Going home is leaving: a seat this browser is no longer looking at would
-    // otherwise be held until the server notices it has gone quiet.
     rooms.release();
     setView('landing');
   };
@@ -88,8 +85,6 @@ export default function App() {
     setIsSubmitting(true);
     setSubmitError(null);
 
-    // Scoring is server-only. If it cannot be reached the round is not recorded,
-    // rather than being silently scored by a weaker local judge.
     let validationRes: ValidationResponse;
     try {
       const response = await fetch('/api/validate', {
@@ -126,8 +121,6 @@ export default function App() {
     }
 
     const currentStats = loadGameStats();
-    // ⚠️ Streak math exists twice: here for the result object, and again in
-    // storage.ts#recordGameCompletion for the persisted value. Update both.
     let newStreak = currentStats.currentStreak;
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
@@ -197,8 +190,6 @@ export default function App() {
           />
         ) : (
           <>
-            {/* The header logo goes home too, but that is not discoverable
-                enough to be the only way out of a round. */}
             <button
               id="back-to-menu-btn"
               onClick={() => {
@@ -239,12 +230,9 @@ export default function App() {
             )}
           </>
         )}
-
-        {/* SEO & Game Guide Section */}
         <SeoFaqSection />
       </main>
 
-      {/* System Footer Bar - Geometric Balance Aesthetic */}
       <footer className="bg-slate-900 text-slate-400 px-6 sm:px-10 py-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-[10px] font-black tracking-widest uppercase border-t-2 border-slate-900">
         <div className="flex items-center gap-6">
           <span>LEXICON v1.0.4</span>
