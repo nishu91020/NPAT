@@ -49,11 +49,9 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
 }) => {
   const [answers, setAnswers] = useState<UserAnswers>(EMPTY_ANSWERS);
   const [copied, setCopied] = useState(false);
-  // Re-renders once a second so the countdown moves between polls.
   const [, setNowTick] = useState(0);
   const roundNumber = room.round?.number ?? 0;
   const lastRoundRef = useRef(roundNumber);
-  /** Whether the clock has already submitted for the round now in progress. */
   const hasAutoSubmitted = useRef(false);
 
   useEffect(() => {
@@ -66,8 +64,6 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
   const youAreRacing = Boolean(you?.racing);
   const timeLeft = room.round ? secondsLeft(room.round, Date.now() - fetchedAtMs) : 0;
 
-  // First place can be shared, so the winner is every row on rank one — naming
-  // only the first would hand the match to whoever happened to sort highest.
   const champions = room.standings.filter((row) => row.rank === 1).map((row) => row.name);
   const championLine =
     champions.length === 0
@@ -76,41 +72,23 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
         ? ` — ${champions[0]} takes it.`
         : ` — ${champions.slice(0, -1).join(', ')} and ${champions[champions.length - 1]} tie it.`;
 
-  // A new round means a clean sheet.
   useEffect(() => {
     if (roundNumber !== lastRoundRef.current) {
       lastRoundRef.current = roundNumber;
       setAnswers(EMPTY_ANSWERS);
-      // ⚠️ Re-armed on any CHANGE of round, never on the round's number. Round
-      // numbers restart at 1 for a new match, and this component is not
-      // remounted in between — so a guard compared against the number stayed
-      // set from match one and round one of match two silently never
-      // auto-submitted, scoring blank for answers the player had typed.
       hasAutoSubmitted.current = false;
     }
   }, [roundNumber]);
 
-  // The last ten seconds tick, matching the solo game.
   useEffect(() => {
     if (room.phase === 'racing' && youAreRacing && !youHaveSubmitted && timeLeft <= 10 && timeLeft > 0) {
       playTickSound();
     }
   }, [timeLeft, room.phase, youAreRacing, youHaveSubmitted]);
 
-  // Read by the auto-submit below, so it always sends the latest keystrokes
-  // without re-arming itself on every one of them.
   const answersRef = useRef(answers);
   answersRef.current = answers;
 
-  /**
-   * ⚠️ The clock submits for you.
-   *
-   * Whatever is typed when the countdown reaches zero is sent as it stands, so a
-   * player who ran out of time still scores what they wrote. The server does keep
-   * a fallback for anyone who has gone, but that one scores blank — this is what
-   * makes a timeout keep the answers. Guarded per round, because the countdown
-   * re-renders once a second and this must fire exactly once.
-   */
   useEffect(() => {
     if (room.phase !== 'racing' || !youAreRacing || youHaveSubmitted) return;
     if (timeLeft > 0 || hasAutoSubmitted.current) return;
