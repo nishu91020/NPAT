@@ -2,14 +2,12 @@ import React, { useState } from 'react';
 import { GameResult } from '../types';
 import { generateShareCard } from '../shareCard';
 import { isAiJudged } from '../judgedBy';
-import { Trophy, Share2, Copy, Check, Sparkles, RefreshCw, Flame, ArrowRight, User, MapPin, Dog, Package, Award, Lightbulb } from 'lucide-react';
+import { Trophy, Share2, Copy, Check, Sparkles, Flame, ArrowRight, User, MapPin, Dog, Package, Award, Lightbulb } from 'lucide-react';
 import { playClickSound, playSuccessSound } from '../audio';
 
 interface ValidationResultCardProps {
   result: GameResult;
-  onPlayAgain?: () => void;
   onViewStats: () => void;
-  mode: 'daily' | 'practice';
 }
 
 const CATEGORY_NAMES = {
@@ -21,9 +19,7 @@ const CATEGORY_NAMES = {
 
 export const ValidationResultCard: React.FC<ValidationResultCardProps> = ({
   result,
-  onPlayAgain,
   onViewStats,
-  mode,
 }) => {
   const [copied, setCopied] = useState(false);
 
@@ -56,7 +52,7 @@ export const ValidationResultCard: React.FC<ValidationResultCardProps> = ({
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-[10px] font-black uppercase tracking-widest text-indigo-600">
-                {mode === 'daily' ? `Challenge #${result.dayNumber}` : 'Practice Round'}
+                Challenge #{result.dayNumber}
               </span>
               <span className="text-[10px] font-bold px-2 py-0.5 bg-slate-100 border border-slate-200 text-slate-700 uppercase tracking-widest">
                 Letter '{result.letter}'
@@ -212,20 +208,6 @@ export const ValidationResultCard: React.FC<ValidationResultCardProps> = ({
         >
           View Streaks & Stats
         </button>
-
-        {mode === 'practice' && onPlayAgain && (
-          <button
-            id="play-next-practice-btn"
-            onClick={() => {
-              playClickSound();
-              onPlayAgain();
-            }}
-            className="w-full sm:w-auto px-8 py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-sm uppercase tracking-widest shadow-[4px_4px_0px_0px_rgba(79,70,229,0.3)] flex items-center justify-center gap-2 transition-all active:translate-y-0.5"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Play Another Practice Round
-          </button>
-        )}
       </div>
     </div>
   );

@@ -14,7 +14,7 @@ import { BonusChallenge } from './contract';
  * ⚠️ The first DETERMINISTIC_CHALLENGE_COUNT entries are FROZEN, in this order.
  * The daily derivation indexes into that prefix, so reordering or removing any
  * of them retroactively rewrites every past puzzle. Add new challenges by
- * APPENDING below the marker — the extras are drawn by practice mode and by the
+ * APPENDING below the marker — the extras are drawn by room rounds and by the
  * random fallback, neither of which has to agree with history.
  */
 export const BONUS_CHALLENGES: BonusChallenge[] = [
@@ -244,16 +244,20 @@ export function getDailyPuzzleData(dateStr?: string) {
 }
 
 /**
- * Generate a random puzzle for Practice / Replay Mode
+ * A random puzzle, for rounds that are not the daily one.
+ *
+ * Rooms draw their letter this way — each round its own, skipping the one just
+ * played. Only `letter` is read by the caller; the rest of the shape is kept so
+ * this stays interchangeable with `getDailyPuzzleData`.
  */
 export function getRandomPuzzleData(excludeLetter?: string) {
   const filtered = AVAILABLE_LETTERS.filter((l) => l !== excludeLetter);
   const letter = filtered[Math.floor(Math.random() * filtered.length)];
   const bonusChallenge = BONUS_CHALLENGES[Math.floor(Math.random() * BONUS_CHALLENGES.length)];
-  
+
   return {
     dayNumber: Math.floor(Math.random() * 500) + 1,
-    dateString: 'practice',
+    dateString: 'random',
     letter,
     bonusChallenge,
     timeLimitSeconds: 60,

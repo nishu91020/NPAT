@@ -19,7 +19,14 @@ export interface GameResult {
   timeTaken: number;
   livesRemaining: number;
   completedAt: string;
-  mode: 'daily' | 'practice';
+  /**
+   * ⚠️ Legacy, and read-only. Every round is the daily one now, so nothing
+   * writes this — but rounds saved while practice mode existed are still in
+   * `localStorage` and arrive forever, carrying `'practice'` and a **random**
+   * `dayNumber`. History reads it so those rounds are labelled honestly rather
+   * than shown as a daily challenge they never were.
+   */
+  mode?: 'daily' | 'practice';
 }
 
 export interface GameStats {

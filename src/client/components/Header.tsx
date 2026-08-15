@@ -1,13 +1,9 @@
 import React from 'react';
-import { Flame, BarChart3, HelpCircle, Volume2, VolumeX, Sparkles, RefreshCw } from 'lucide-react';
+import { Flame, BarChart3, HelpCircle, Volume2, VolumeX } from 'lucide-react';
 import { playClickSound } from '../audio';
 
 interface HeaderProps {
   streak: number;
-  mode: 'daily' | 'practice';
-  /** Hidden on the landing screen, where the three big buttons are the way in. */
-  showModeSelector: boolean;
-  onSelectMode: (mode: 'daily' | 'practice') => void;
   onGoHome: () => void;
   onOpenStats: () => void;
   onOpenHelp: () => void;
@@ -17,9 +13,6 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   streak,
-  mode,
-  showModeSelector,
-  onSelectMode,
   onGoHome,
   onOpenStats,
   onOpenHelp,
@@ -55,42 +48,6 @@ export const Header: React.FC<HeaderProps> = ({
             </p>
           </div>
         </button>
-
-        {/* Mode Selector — only while a round is in play */}
-        {showModeSelector && (
-          <div className="flex items-center bg-slate-100 p-1 border border-slate-200 text-xs font-extrabold uppercase tracking-wider">
-            <button
-              id="mode-daily-btn"
-              onClick={() => {
-                playClickSound();
-                onSelectMode('daily');
-              }}
-              className={`min-h-[44px] px-3 py-1.5 transition-all duration-150 flex items-center gap-1.5 ${
-                mode === 'daily'
-                  ? 'bg-indigo-600 text-white font-black shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Daily</span>
-            </button>
-            <button
-              id="mode-practice-btn"
-              onClick={() => {
-                playClickSound();
-                onSelectMode('practice');
-              }}
-              className={`min-h-[44px] px-3 py-1.5 transition-all duration-150 flex items-center gap-1.5 ${
-                mode === 'practice'
-                  ? 'bg-indigo-600 text-white font-black shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>Practice</span>
-            </button>
-          </div>
-        )}
 
         {/* Action Controls & Streak */}
         <div className="flex items-center gap-1.5 sm:gap-2">

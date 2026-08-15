@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { DailyPuzzle, UserAnswers, ValidationResponse, RoomView } from '../shared/contract';
 import { GameResult, GameStats } from './types';
-import { getDailyPuzzleData, getRandomPuzzleData } from '../shared/puzzle';
+import { getDailyPuzzleData } from '../shared/puzzle';
 import {
   loadGameStats,
   recordGameCompletion,
@@ -36,13 +36,12 @@ import { ValidationResultCard } from './components/ValidationResultCard';
 import { StreakStatsModal } from './components/StreakStatsModal';
 import { HelpRulesModal } from './components/HelpRulesModal';
 import { SeoFaqSection } from './components/SeoFaqSection';
-import { Sparkles, Trophy, Flame, RefreshCw, Calendar, Share2, HelpCircle, AlertCircle, ArrowLeft } from 'lucide-react';
+import { AlertCircle, ArrowLeft } from 'lucide-react';
 
 export default function App() {
-  // The front door. 'landing' offers the three ways in; 'game' is a solo round;
+  // The front door. 'landing' offers the ways in; 'game' is the daily round;
   // 'room' is a live race against other people.
   const [view, setView] = useState<'landing' | 'game' | 'room'>('landing');
-  const [mode, setMode] = useState<'daily' | 'practice'>('daily');
   const [puzzle, setPuzzle] = useState<DailyPuzzle>(getDailyPuzzleData());
   const [gameResult, setGameResult] = useState<GameResult | null>(null);
   const [stats, setStats] = useState<GameStats>(loadGameStats());
@@ -119,33 +118,6 @@ export default function App() {
     }
   };
 
-  const fetchPracticePuzzle = async (excludeLetter?: string) => {
-    try {
-      const res = await fetch(`/api/practice-challenge?exclude=${excludeLetter || ''}`);
-      if (res.ok) {
-        const data = await res.json();
-        setPuzzle(data);
-      } else {
-        setPuzzle(getRandomPuzzleData(excludeLetter));
-      }
-    } catch (e) {
-      setPuzzle(getRandomPuzzleData(excludeLetter));
-    }
-  };
-
-  const handleSelectMode = (newMode: 'daily' | 'practice') => {
-    setMode(newMode);
-    setSubmitError(null);
-    // Choosing a mode from the header is also a request to start playing it.
-    setView('game');
-    if (newMode === 'daily') {
-      fetchDailyPuzzle();
-    } else {
-      setGameResult(null);
-      fetchPracticePuzzle();
-    }
-  };
-
   const handleGoHome = () => {
     setSubmitError(null);
     // Going home is leaving: a seat this browser is no longer looking at would
@@ -156,7 +128,6 @@ export default function App() {
 
   const handleDailyChallenge = () => {
     setSubmitError(null);
-    setMode('daily');
     setView('game');
     fetchDailyPuzzle();
   };
@@ -325,11 +296,6 @@ export default function App() {
   }, [view, room?.code, player.id]);
 
   const hasPlayedTodayOfficial = !!loadTodayDailyResult(todayStr);
-  const handleNewPracticeRound = () => {
-    setGameResult(null);
-    setSubmitError(null);
-    fetchPracticePuzzle(puzzle.letter);
-  };
 
   const handleSubmitAnswers = async (answers: UserAnswers, timeTaken: number, remainingLives: number) => {
     setIsSubmitting(true);
@@ -374,16 +340,16 @@ export default function App() {
     }
 
     const currentStats = loadGameStats();
+    // ⚠️ Streak math exists twice: here for the result object, and again in
+    // storage.ts#recordGameCompletion for the persisted value. Update both.
     let newStreak = currentStats.currentStreak;
-    if (mode === 'daily') {
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr = yesterday.toISOString().split('T')[0];
-      if (currentStats.lastPlayedDate === yesterdayStr || currentStats.lastPlayedDate === null) {
-        newStreak += 1;
-      } else if (currentStats.lastPlayedDate !== todayStr) {
-        newStreak = 1;
-      }
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    if (currentStats.lastPlayedDate === yesterdayStr || currentStats.lastPlayedDate === null) {
+      newStreak += 1;
+    } else if (currentStats.lastPlayedDate !== todayStr) {
+      newStreak = 1;
     }
 
     const resultObj: GameResult = {
@@ -397,7 +363,6 @@ export default function App() {
       timeTaken,
       livesRemaining: remainingLives,
       completedAt: new Date().toISOString(),
-      mode,
     };
 
     setGameResult(resultObj);
@@ -410,9 +375,6 @@ export default function App() {
       {/* Top Navigation Header */}
       <Header
         streak={stats.currentStreak}
-        mode={mode}
-        showModeSelector={view === 'game'}
-        onSelectMode={handleSelectMode}
         onGoHome={handleGoHome}
         onOpenStats={() => setIsStatsOpen(true)}
         onOpenHelp={() => setIsHelpOpen(true)}
@@ -466,20 +428,13 @@ export default function App() {
             </button>
 
             {/* Letter & Bonus Challenge Banner */}
-            <LetterBanner
-              puzzle={puzzle}
-              mode={mode}
-              onNewPracticeRound={handleNewPracticeRound}
-              hasPlayedToday={hasPlayedTodayOfficial}
-            />
+            <LetterBanner puzzle={puzzle} hasPlayedToday={hasPlayedTodayOfficial} />
 
             {/* Dynamic State Section */}
             {gameResult ? (
               <ValidationResultCard
                 result={gameResult}
-                onPlayAgain={mode === 'practice' ? handleNewPracticeRound : undefined}
                 onViewStats={() => setIsStatsOpen(true)}
-                mode={mode}
               />
             ) : (
               <>

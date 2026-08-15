@@ -176,7 +176,7 @@ describe('ruleFamilyForDate', () => {
   });
 
   it('falls back to a random family for an unparseable date', () => {
-    expect(RULE_FAMILIES).toContain(ruleFamilyForDate('practice'));
+    expect(RULE_FAMILIES).toContain(ruleFamilyForDate('not-a-date'));
   });
 });
 
@@ -226,7 +226,7 @@ describe('createAzureBonusSource', () => {
 
   it('asks the injected picker for the family, once per generation', async () => {
     // How variety is achieved is the caller's decision: the daily challenge
-    // rotates by date, practice avoids recent repeats.
+    // rotates by date, rooms avoid recent repeats.
     const { client, create } = fakeClient(JSON.stringify(complete));
     const pickFamily = vi.fn(() => 'a rule about word length, invented for this test');
 

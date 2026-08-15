@@ -2,8 +2,7 @@
 
 A daily word puzzle. Each day gives you one letter; fill in a Name, a Place, an Animal and a Thing
 before the timer runs out. Answers are judged by an AI referee, with a local heuristic as a fallback.
-There is also a practice mode and a multiplayer mode where up to eight players race the same letter
-in a room.
+There is also a multiplayer mode where up to eight players race the same letter in a room.
 
 **Design and architecture:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 

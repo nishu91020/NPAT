@@ -91,7 +91,7 @@ export const StreakStatsModal: React.FC<StreakStatsModalProps> = ({ isOpen, onCl
                     </span>
                     <div>
                       <p className="font-extrabold text-slate-900 uppercase tracking-tight">
-                        {item.mode === 'daily' ? `Challenge #${item.dayNumber}` : 'Practice'}
+                        {item.mode === 'practice' ? 'Practice' : `Challenge #${item.dayNumber}`}
                       </p>
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{item.completedAt.split('T')[0]}</p>
                     </div>

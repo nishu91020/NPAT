@@ -1,12 +1,9 @@
 import React from 'react';
 import { DailyPuzzle } from '../../shared/contract';
-import { Sparkles, RefreshCw, Calendar, Clock, Award, Flag, Utensils, Globe, TreePine, Layers } from 'lucide-react';
-import { playClickSound } from '../audio';
+import { Sparkles, Calendar, Clock, Award, Flag, Utensils, Globe, TreePine, Layers } from 'lucide-react';
 
 interface LetterBannerProps {
   puzzle: DailyPuzzle;
-  mode: 'daily' | 'practice';
-  onNewPracticeRound?: () => void;
   hasPlayedToday?: boolean;
 }
 
@@ -20,12 +17,7 @@ const ICON_MAP: Record<string, React.ReactNode> = {
   Award: <Award className="w-5 h-5 text-amber-500" />,
 };
 
-export const LetterBanner: React.FC<LetterBannerProps> = ({
-  puzzle,
-  mode,
-  onNewPracticeRound,
-  hasPlayedToday,
-}) => {
+export const LetterBanner: React.FC<LetterBannerProps> = ({ puzzle, hasPlayedToday }) => {
   return (
     <div id="letter-banner-card" className="w-full bg-white border-2 border-slate-200 p-6 sm:p-8 shadow-sm relative overflow-hidden">
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative z-10">
@@ -39,14 +31,12 @@ export const LetterBanner: React.FC<LetterBannerProps> = ({
           <div>
             <div className="flex items-center gap-2 mb-2">
               <span className="text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 bg-slate-100 text-slate-700 border border-slate-200">
-                {mode === 'daily' ? `Challenge #${puzzle.dayNumber}` : 'Practice Round'}
+                Challenge #{puzzle.dayNumber}
               </span>
-              {mode === 'daily' && (
-                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 flex items-center gap-1">
-                  <Calendar className="w-3.5 h-3.5" />
-                  {puzzle.dateString}
-                </span>
-              )}
+              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 flex items-center gap-1">
+                <Calendar className="w-3.5 h-3.5" />
+                {puzzle.dateString}
+              </span>
             </div>
 
             <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight uppercase">
@@ -67,18 +57,6 @@ export const LetterBanner: React.FC<LetterBannerProps> = ({
               <Sparkles className="w-4 h-4" />
               Bonus Challenge (+5 Pts Each)
             </span>
-            {mode === 'practice' && onNewPracticeRound && (
-              <button
-                id="practice-shuffle-btn"
-                onClick={() => {
-                  playClickSound();
-                  onNewPracticeRound();
-                }}
-                className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 hover:text-indigo-800 flex items-center gap-1 underline"
-              >
-                <RefreshCw className="w-3 h-3" /> Shuffle
-              </button>
-            )}
           </div>
 
           <div className="flex items-start gap-3">
@@ -98,9 +76,9 @@ export const LetterBanner: React.FC<LetterBannerProps> = ({
         </div>
       </div>
 
-      {hasPlayedToday && mode === 'daily' && (
+      {hasPlayedToday && (
         <div className="mt-6 pt-4 border-t-2 border-slate-100 flex items-center justify-between text-xs font-bold text-indigo-700 bg-indigo-50/70 p-3 border border-indigo-100">
-          <span>✓ Today's puzzle complete! Replay in Practice Mode anytime.</span>
+          <span>✓ Today's puzzle complete! Come back tomorrow for a new letter.</span>
         </div>
       )}
     </div>

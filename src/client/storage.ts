@@ -122,8 +122,9 @@ export function recordGameCompletion(result: GameResult): GameStats {
   const currentStats = loadGameStats();
   const dateKey = result.dateString;
 
-  // Don't double count daily streak for the exact same date if already recorded
-  const isNewDailyDay = result.mode === 'daily' && currentStats.lastPlayedDate !== dateKey;
+  // Every round is the daily one, so the only question left is whether today has
+  // already been counted — the same date must not extend the streak twice.
+  const isNewDailyDay = currentStats.lastPlayedDate !== dateKey;
 
   let newStreak = currentStats.currentStreak;
   if (isNewDailyDay) {
@@ -145,11 +146,11 @@ export function recordGameCompletion(result: GameResult): GameStats {
   const updatedStats: GameStats = {
     ...currentStats,
     gamesPlayed: currentStats.gamesPlayed + 1,
-    currentStreak: result.mode === 'daily' ? newStreak : currentStats.currentStreak,
-    maxStreak: result.mode === 'daily' ? maxStreak : currentStats.maxStreak,
+    currentStreak: newStreak,
+    maxStreak,
     totalScore: currentStats.totalScore + result.score,
     wins: currentStats.wins + (isWin ? 1 : 0),
-    lastPlayedDate: result.mode === 'daily' ? dateKey : currentStats.lastPlayedDate,
+    lastPlayedDate: dateKey,
     history: {
       ...currentStats.history,
       [result.completedAt]: result,
@@ -158,11 +159,9 @@ export function recordGameCompletion(result: GameResult): GameStats {
 
   saveGameStats(updatedStats);
 
-  if (result.mode === 'daily') {
-    try {
-      localStorage.setItem(TODAY_RESULT_KEY, JSON.stringify(result));
-    } catch (e) {}
-  }
+  try {
+    localStorage.setItem(TODAY_RESULT_KEY, JSON.stringify(result));
+  } catch (e) {}
 
   return updatedStats;
 }
@@ -172,7 +171,10 @@ export function loadTodayDailyResult(dateString: string): GameResult | null {
     const raw = localStorage.getItem(TODAY_RESULT_KEY);
     if (!raw) return null;
     const parsed: GameResult = JSON.parse(raw);
-    if (parsed.dateString === dateString && parsed.mode === 'daily') {
+    // Only ever written for a daily round, so the date is the whole test. It
+    // used to also require `mode === 'daily'`, which nothing sets any more —
+    // keeping that check would have let today's puzzle be played twice.
+    if (parsed.dateString === dateString) {
       return parsed;
     }
     return null;

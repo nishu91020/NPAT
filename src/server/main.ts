@@ -103,7 +103,7 @@ const bonusAdjudicator: BonusAdjudicator | undefined = azure
  * Two AI sources, differing only in how each chooses its rule family.
  *
  * The daily one rotates by date so no two consecutive days share a family;
- * practice draws at random but skips whatever it has served recently. Sharing
+ * rooms draw at random but skip whatever has been served recently. Sharing
  * one source would put both back on an unconstrained random draw.
  */
 const dailyAiSourceFor = azure
@@ -111,7 +111,7 @@ const dailyAiSourceFor = azure
       createAzureBonusSource(azure.client, azure.bonusDeployment, () => ruleFamilyForDate(dateStr))
   : null;
 
-const practiceAiSource: BonusChallengeSource | null = azure
+const roomAiSource: BonusChallengeSource | null = azure
   ? createAzureBonusSource(azure.client, azure.bonusDeployment, createRecentAvoidingPicker())
   : null;
 
@@ -154,8 +154,14 @@ const dailyBonus = cachedPerDate(
   }
 );
 
-const practiceBonus: BonusChallengeSource = practiceAiSource
-  ? withBonusFallback(practiceAiSource, randomBuiltinSource)
+/**
+ * A challenge drawn fresh per request, for rounds that are not the daily one.
+ *
+ * Rooms use it, so every round of a match gets its own challenge, and the
+ * recent-avoiding picker keeps a match from playing near-identical rules.
+ */
+const randomBonus: BonusChallengeSource = roomAiSource
+  ? withBonusFallback(roomAiSource, randomBuiltinSource)
   : randomBuiltinSource;
 
 app.get('/api/health', (req, res) => {
@@ -172,16 +178,8 @@ app.get('/api/daily-challenge', async (req, res) => {
   res.json({ ...basePuzzle, bonusChallenge, isRealtimeBonus: hasAiBonusSource });
 });
 
-app.get('/api/practice-challenge', async (req, res) => {
-  const excludeLetter = req.query.exclude as string;
-  const basePuzzle = getRandomPuzzleData(excludeLetter);
-  const bonusChallenge = await practiceBonus.next(basePuzzle.letter);
-
-  res.json({ ...basePuzzle, bonusChallenge, isRealtimeBonus: hasAiBonusSource });
-});
-
 app.post('/api/generate-bonus', async (req, res) => {
-  const bonusChallenge = await practiceBonus.next(req.body?.letter || 'S');
+  const bonusChallenge = await randomBonus.next(req.body?.letter || 'S');
   res.json(bonusChallenge);
 });
 
@@ -288,7 +286,7 @@ const rooms = roomStore
       // Each round draws a fresh letter, skipping the one just played.
       nextPuzzle: async (excludeLetter) => {
         const puzzle = getRandomPuzzleData(excludeLetter);
-        const bonusChallenge = await practiceBonus.next(puzzle.letter);
+        const bonusChallenge = await randomBonus.next(puzzle.letter);
         return { letter: puzzle.letter, bonusChallenge };
       },
     })

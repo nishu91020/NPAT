@@ -1,8 +1,8 @@
 # Architecture — Letters Daily (NPAT)
 
-A daily "Name, Place, Animal, Thing" word game with three modes — **Daily**, **Practice** and
-**Multiplayer rooms** — served by one Express process that also hosts the React client and proxies
-answer judging to a model on Microsoft Foundry.
+A daily "Name, Place, Animal, Thing" word game with two modes — **Daily** and **Multiplayer rooms** —
+served by one Express process that also hosts the React client and proxies answer judging to a model
+on Microsoft Foundry.
 
 This document explains how the system is put together and, more importantly, **why**: nearly every
 structural decision here is the fix to a bug that actually happened. Rules short enough to state as
@@ -151,7 +151,7 @@ sequenceDiagram
 > The same is true of the first `DETERMINISTIC_CHALLENGE_COUNT` (7) entries of `BONUS_CHALLENGES`:
 > the derivation indexes that prefix, and it was once `% BONUS_CHALLENGES.length`, which meant
 > appending a single challenge silently changed which one every past date resolved to. Add challenges
-> by **appending below the marker** in `puzzle.ts`; the extras are drawn by practice mode and the
+> by **appending below the marker** in `puzzle.ts`; the extras are drawn by room rounds and the
 > random fallback, neither of which has to agree with history. `puzzle.test.ts` pins the prefix, its
 > order, and golden letter/challenge/`dayNumber` values for known dates.
 
@@ -187,34 +187,14 @@ offline.
 
 ---
 
-## 5. Mode 2 — Practice
-
-Identical to Daily except that nothing is derived and nothing is stored: `getRandomPuzzleData` draws a
-random letter (excluding the one just played) and `practiceBonus.next()` generates a fresh challenge
-per request. Results never touch the streak.
-
-Rule *variety* is engineered rather than hoped for. The generator is handed a named `RULE_FAMILIES`
-entry per request, because the model otherwise anchors on whichever example it saw first and returns
-near-identical challenges every round. The families are numerous and specific on purpose: the model
-writes near-identical rules *within* a family, so the family count — not the number of rounds — is the
-real ceiling on variety. How a family is chosen is injected per caller:
-
-- **Daily** uses `ruleFamilyForDate` — a deterministic rotation with a stride coprime to the list
-  length, so consecutive days never repeat and every family is used before any recurs.
-- **Practice and rooms** use `createRecentAvoidingPicker`.
-
-Sharing one source between them would put both back on an unconstrained random draw.
-
----
-
-## 6. Mode 3 — Multiplayer rooms
+## 5. Mode 2 — Multiplayer rooms
 
 Up to 8 players race the same letter on a 4-character room code. A room plays its **own** random
 letter, never the daily one, and its results never touch the streak or the saved stats — which keeps
 the daily puzzle exactly as it is: one letter a day, played once, with nothing about rooms able to
 corrupt it.
 
-### 6.1 The state machine
+### 5.1 The state machine
 
 ```mermaid
 stateDiagram-v2
@@ -239,7 +219,7 @@ function takes `now`, so the entire lifecycle is testable without timers.
 | `judgingClaimSeconds` | 45 | Long enough for a slow model call, short enough that a dead replica costs one wait |
 | `defaultRounds` | 3 | The host picks from `ROOM_ROUND_CHOICES`, locked once round one starts |
 
-### 6.2 Rooms advance lazily, on read
+### 5.2 Rooms advance lazily, on read
 
 There is no timer and no sweeper. The app scales to zero, and a background job would keep a replica
 alive purely to watch a clock. Every entry point loads the room, advances it to `now`, acts, and
@@ -249,7 +229,7 @@ The consequence: a room everybody walked away from is never read, so it never ex
 one moment that cares, so creation is what cleans up (`freeIfDead`) — a code is only refused by a room
 that is still alive.
 
-### 6.3 Transport: polling, not sockets
+### 5.3 Transport: polling, not sockets
 
 `ROOM_POLL_MS = 1500`. Polling is the only transport that survives several replicas without a message
 backplane, because the room in the store is already the source of truth. The poll doubles as the
@@ -261,7 +241,7 @@ presence heartbeat.
 > produced ~5 conditional writes a second against one blob — contention the judging publish has to
 > win.
 
-### 6.4 Concurrency: optimistic, and every change is a redo
+### 5.4 Concurrency: optimistic, and every change is a redo
 
 Two players in one room are routinely served by different replicas. Every mutation is a
 read-modify-write, so writes are **conditional on the version the room was read at**
@@ -272,7 +252,7 @@ change is expressed as a synchronous function of the room: it has to be safe to 
 Without this, two players submitting at once on different replicas would each save a room built from a
 copy that predated the other, and one submission would simply vanish.
 
-### 6.5 Judging happens exactly once, for exactly one round
+### 5.5 Judging happens exactly once, for exactly one round
 
 Judging is the one step that cannot be repeated: it calls the model and then adds a round to the
 standings, so two replicas doing it would score the round twice — and unlike a lost write, that damage
@@ -288,7 +268,7 @@ is permanent.
 - The publish retries harder than any other write (`MAX_PUBLISH_ATTEMPTS`), because losing that race
   discards a model call that has already been paid for.
 
-### 6.6 Security model: an id names a seat, a token owns it
+### 5.6 Security model: an id names a seat, a token owns it
 
 ```mermaid
 sequenceDiagram
@@ -324,7 +304,7 @@ Other integrity rules:
   is only a sort, breaking ties on time. `tied` is a property of the *rank*, not of the row above —
   deriving it from the comparison alone told the leader of a two-way tie they had won outright.
 
-### 6.7 Judging a room round
+### 5.7 Judging a room round
 
 ```mermaid
 flowchart LR
@@ -339,17 +319,17 @@ flowchart LR
 
 Players are judged in **separate, parallel calls** — deliberately, so one player's content-filter
 rejection cannot take down everyone else's round, and because no player's score depends on another's.
-The bonus rule is the one thing those independent calls cannot be trusted with; see §7.4.
+The bonus rule is the one thing those independent calls cannot be trusted with; see §6.4.
 
 ---
 
-## 7. The referee
+## 6. The referee
 
 `src/server/referee/` is the only place a round is scored. Judges rule on words; they never assign
 points and never see the clock (`JudgeRequest` deliberately omits `timeTakenSeconds`), so a judge
 cannot influence the speed bonus.
 
-### 7.1 The pipeline
+### 6.1 The pipeline
 
 ```
 judge.judge(request)        ← Azure, or heuristic on failure
@@ -362,7 +342,7 @@ judge.judge(request)        ← Azure, or heuristic on failure
 Bonus authority runs **least-trusted last**: the shared ruling overrules the per-player judge, and the
 mechanical check overrules them both.
 
-### 7.2 Scoring
+### 6.2 Scoring
 
 `SCORING` in `scoring.ts` is the single source of truth — these numbers previously lived in three
 places (the prompt, a local validator, and a second copy of the speed ladder) and had already drifted.
@@ -387,7 +367,7 @@ threshold of two was a real bug — four of the seven built-in challenges constr
 ("the Thing must be edible"), so at most one answer could ever match and they were impossible to
 complete.
 
-### 7.3 The model is not trusted with anything mechanically decidable
+### 6.3 The model is not trusted with anything mechanically decidable
 
 Four guards sit between the judge and the score, every one added after live output was observed
 getting it wrong:
@@ -403,7 +383,7 @@ getting it wrong:
 is edible — and stays with the judge. Whether a *suggested* word is a real member of its category
 likewise stays with the judge: it is world knowledge, and nothing in code can catch `Samm`.
 
-### 7.4 The round-wide bonus adjudicator
+### 6.4 The round-wide bonus adjudicator
 
 A knowledge-based rule ("at least 2 answers must relate to a colour") is neither mechanically decidable
 nor safe to leave to per-player calls: the model applied it differently to each player, and two players
@@ -420,7 +400,7 @@ a ruling on a word nobody wrote is dropped rather than trusted.
 > them, so answers are JSON-quoted and declared to be data, and control characters are stripped when
 > answers are read. An instruction-shaped answer would otherwise be an attack on other people's scores.
 
-### 7.5 Strict structured output
+### 6.5 Strict structured output
 
 Azure adapters request `response_format: { type: 'json_schema', strict: true }`, which requires
 `additionalProperties: false` on every object and every property listed in `required`. Strict mode
@@ -432,7 +412,7 @@ since strict-mode support for references is unverified. Tests pin all of this.
 truncation, filter rejections and the parse — as a named error taxonomy, because callers act
 differently on each. Adapters are left with domain logic only.
 
-### 7.6 Content filtering is a first-class failure mode
+### 6.6 Content filtering is a first-class failure mode
 
 Azure filters *input* as well as output, and this game feeds player-typed words into a prompt. A
 `content_filter` rejection must never be retried and must never fall through to the heuristic judge,
@@ -444,7 +424,7 @@ ones are skipped, having been blanked before it saw them — then re-judging wit
 blanked. Those probes are **not retries**: each carries different content, and a test asserts the
 original request is never repeated unchanged.
 
-### 7.7 The heuristic judge
+### 6.7 The heuristic judge
 
 It awards only what it can verify from the word alone — length, vowel count, adjacent vowels, double
 letters, how a word ends — and declines the knowledge-based challenges rather than guessing. It is a
@@ -454,7 +434,7 @@ judge ruled and is persisted inside saved rounds, so values from earlier release
 
 ---
 
-## 8. Generated bonus challenges
+## 7. Generated bonus challenges
 
 Every generated challenge must pass two tests, encoded in `BONUS_SYSTEM_PROMPT`:
 
@@ -473,9 +453,25 @@ Words", "Space Seekers" and "Sporty Squad".
 Icons are constrained at the source: `RENDERABLE_ICONS` is both the list offered to the model *and* the
 clamp applied to its answer, and it must stay in lockstep with `ICON_MAP` in `LetterBanner.tsx`.
 
+### Variety is engineered, not hoped for
+
+The generator is handed a named `RULE_FAMILIES` entry per request, because the model otherwise anchors
+on whichever example it saw first and returns near-identical challenges every round. The families are
+numerous and specific on purpose: the model writes near-identical rules *within* a family, so the
+family count — not the number of rounds — is the real ceiling on variety, and a broad family like "a
+shared theme" always came back as "at least 2 answers must relate to X".
+
+How a family is chosen is injected per caller, so the two modes cannot collapse into one
+unconstrained random draw:
+
+- **Daily** uses `ruleFamilyForDate` — a deterministic rotation with a stride coprime to the list
+  length, so consecutive days never repeat and every family is used before any recurs.
+- **Rooms** use `createRecentAvoidingPicker`, because their rounds are drawn per request and a uniform
+  draw repeats a family within one match often enough to feel broken.
+
 ---
 
-## 9. State and persistence
+## 8. State and persistence
 
 ### Client (`localStorage`, versioned keys)
 
@@ -492,6 +488,14 @@ Bump the `_v1` suffix when a stored shape changes: loaders only shallow-merge ov
 > object, and `storage.ts#recordGameCompletion` independently recomputes the persisted value. Update
 > both.
 
+> ⚠️ **Stored rounds outlive the features that wrote them.** `GameResult.mode` is the surviving
+> example: practice mode is gone and nothing writes it, but rounds saved while it existed are still
+> in `localStorage` and arrive forever, carrying `'practice'` and a **random** `dayNumber`. History
+> reads it so those rounds are still labelled honestly instead of being shown as a daily challenge
+> they never were. `judgedBy` is the same story — `'gemini'` from the Gemini era, and `undefined`
+> from before the field, which is why `isAiJudged()` exists rather than a truthiness check. The keys
+> were not bumped for either, because bumping wipes every player's streak.
+
 ### Server (Azure Blob Storage)
 
 Two independent stores behind two ports: daily challenges keyed by date (`putIfAbsent`, first writer
@@ -501,7 +505,7 @@ with Entra ID, or a connection string for Azurite locally. `blobStore.get` treat
 
 ---
 
-## 10. Client structure
+## 9. Client structure
 
 No router, no state library. All game state lives in `App.tsx` and is passed down as props;
 `src/client/components/` holds presentational components only, each with a local `...Props` interface
@@ -524,7 +528,7 @@ touch targets, and a slate/indigo/rose/emerald/amber palette. Icons come from `l
 
 ---
 
-## 11. Telemetry
+## 10. Telemetry
 
 `src/server/telemetry/` is a `Telemetry` port with a no-op adapter, so call sites record
 unconditionally without null checks, and a `neverThrows` wrapper means a telemetry bug cannot fail a
@@ -540,7 +544,7 @@ no extra ingestion cost.
 
 ---
 
-## 12. Testing strategy
+## 11. Testing strategy
 
 Vitest, configured by a **separate, deliberately plugin-free `vitest.config.ts`** (loading
 `@tailwindcss/vite` fails in Vitest's node environment). Integration tests are excluded from
@@ -555,14 +559,14 @@ What the suite is actually for:
 - **Reproducing concurrency** — several `RoomService` instances over one memory store *are* several
   replicas, and the clock is injected, so a stale judging claim or a lost write is an ordinary unit
   test rather than a flaky one.
-- **Guarding the guards** — every entry in §7.3 has tests, because every one is a real regression.
+- **Guarding the guards** — every entry in §6.3 has tests, because every one is a real regression.
 
 > ⚠️ Both judge failures were **intermittent**. A single passing live run proves nothing here; re-run
 > several times before believing a prompt change fixed something.
 
 ---
 
-## 13. Invariants
+## 12. Invariants
 
 The short list worth re-reading before changing anything:
 
@@ -579,7 +583,7 @@ The short list worth re-reading before changing anything:
 
 ---
 
-## 14. Known gaps
+## 13. Known gaps
 
 - **No rate limiting on the room endpoints.** Codes are four characters, and `create`/`join` are
   unauthenticated by nature.
@@ -602,8 +606,7 @@ together, always.
 |---|---|---|
 | `GET /api/health` | — | `{ status, time, rooms: 'shared' \| 'single-replica' \| 'disabled' }` |
 | `GET /api/daily-challenge` | `?date=YYYY-MM-DD` (defaults to today) | `DailyPuzzle` + `bonusChallenge` + `isRealtimeBonus` |
-| `GET /api/practice-challenge` | `?exclude=LETTER` | as above, randomly drawn |
-| `POST /api/generate-bonus` | `{ letter }` | `BonusChallenge` |
+| `POST /api/generate-bonus` | `{ letter }` | `BonusChallenge`, drawn fresh |
 | `POST /api/validate` | `{ letter, answers, bonusChallenge, timeTakenSeconds }` | `ValidationResponse` |
 | `POST /api/rooms` | `{ playerId, name }` | `RoomView` **+ `youToken`** |
 | `POST /api/rooms/:code/join` | `{ playerId, name, token? }` | `RoomView` **+ `youToken`** |

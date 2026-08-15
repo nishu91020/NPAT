@@ -320,9 +320,9 @@ export function ruleFamilyForDate(dateStr: string): string {
 /**
  * A picker that will not repeat any of the last `memory` families.
  *
- * Practice rounds are drawn per request, so a uniform draw hands the player the
- * same family twice in a row often enough to feel broken. Remembering the
- * recent ones costs nothing and removes the case players actually notice.
+ * Room rounds are drawn per request, so a uniform draw hands a match the same
+ * family twice in a row often enough to feel broken. Remembering the recent
+ * ones costs nothing and removes the case players actually notice.
  */
 export function createRecentAvoidingPicker(
   memory = 8,
@@ -394,7 +394,7 @@ export function examplesProveChallenge(
  * parameter expects — not the underlying model name.
  *
  * `pickFamily` is injected so callers decide how variety is achieved: the daily
- * challenge rotates deterministically by date, practice avoids recent repeats.
+ * challenge rotates deterministically by date, rooms avoid recent repeats.
  */
 /**
  * A challenge the game rejected as unfit to serve — as opposed to a transport

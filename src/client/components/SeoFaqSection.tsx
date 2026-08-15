@@ -22,8 +22,8 @@ export const SeoFaqSection: React.FC = () => {
       a: 'Each valid answer earns base points. Bonus twists add +5 extra points per category. Submitting quickly earns up to +20 Speed Bonus points. Completing the daily official puzzle increases your consecutive Daily Streak.',
     },
     {
-      q: 'Can I play unlimited practice rounds?',
-      a: 'Yes! Toggle to "Practice Mode" in the header navigation at any time to play unlimited randomized rounds with different letters and bonus rules to sharpen your vocabulary.',
+      q: 'Can I play more than one round a day?',
+      a: 'The official puzzle is one letter a day, played once — that is what the streak is built on. To keep playing, start a multiplayer room and race friends: each room round draws its own letter and bonus rule, and room results never affect your daily streak.',
     },
     {
       q: 'Is Letters Daily mobile-friendly?',
