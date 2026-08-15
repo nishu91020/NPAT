@@ -69,7 +69,6 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
 
   return (
     <section id="landing-screen" className="w-full space-y-8">
-      {/* Masthead */}
       <div className="bg-white border-2 border-slate-200 p-6 sm:p-10 shadow-sm">
         <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">
           Name • Place • Animal • Thing
@@ -101,7 +100,6 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
 
       {intent === null ? (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
-          {/* Daily challenge — the primary path */}
           <button
             id="landing-daily-btn"
             onClick={() => {

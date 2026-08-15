@@ -47,14 +47,12 @@ export const SeoFaqSection: React.FC = () => {
         </div>
       </div>
 
-      {/* SEO Intro Content */}
       <div className="text-xs font-medium text-slate-600 space-y-3 leading-relaxed">
         <p>
           Welcome to <strong className="text-slate-900 font-extrabold">Letters Daily</strong>, the definitive digital edition of the classic <strong className="text-slate-900 font-extrabold">Name, Place, Animal, Thing</strong> word puzzle. Designed for word enthusiasts, trivia fans, and fast-thinkers of all ages, Letters Daily combines rapid vocabulary challenges with AI-powered validation, daily streak rewards, and competitive bonus twists.
         </p>
       </div>
 
-      {/* FAQ Accordion */}
       <div className="space-y-3 pt-2">
         <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5 mb-3">
           <HelpCircle className="w-4 h-4 text-indigo-600" />
@@ -91,7 +89,6 @@ export const SeoFaqSection: React.FC = () => {
         })}
       </div>
 
-      {/* Mobile Tips Box */}
       <div className="p-4 bg-indigo-50 border-l-4 border-indigo-600 border-y border-r border-indigo-100 flex items-start gap-3">
         <Sparkles className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
         <div className="text-xs">

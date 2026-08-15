@@ -21,9 +21,7 @@ export const LetterBanner: React.FC<LetterBannerProps> = ({ puzzle, hasPlayedTod
   return (
     <div id="letter-banner-card" className="w-full bg-white border-2 border-slate-200 p-6 sm:p-8 shadow-sm relative overflow-hidden">
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative z-10">
-        {/* Left Side: Today's Target Letter & Puzzle Info */}
         <div className="flex items-center gap-6">
-          {/* Daily Big Letter Block - Geometric Balance Signature */}
           <div className="w-24 h-24 sm:w-28 sm:h-28 bg-indigo-600 flex items-center justify-center text-white font-black text-6xl sm:text-7xl shadow-[8px_8px_0px_0px_rgba(79,70,229,0.2)] shrink-0 select-none">
             {puzzle.letter}
           </div>
@@ -50,7 +48,6 @@ export const LetterBanner: React.FC<LetterBannerProps> = ({ puzzle, hasPlayedTod
           </div>
         </div>
 
-        {/* Right Side: Daily Twist / Bonus Challenge Box */}
         <div className="w-full md:w-auto min-w-[280px] sm:min-w-[320px] bg-slate-50 border-l-4 border-amber-400 p-4 border-y border-r border-slate-200">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] font-black uppercase tracking-widest text-amber-600 flex items-center gap-1.5">

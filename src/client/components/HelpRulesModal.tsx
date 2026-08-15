@@ -13,7 +13,6 @@ export const HelpRulesModal: React.FC<HelpRulesModalProps> = ({ isOpen, onClose 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
       <div className="bg-white max-w-lg w-full p-6 sm:p-8 border-2 border-slate-200 shadow-[8px_8px_0px_0px_rgba(0,0,0,0.15)] relative max-h-[90vh] overflow-y-auto">
-        {/* Close Button */}
         <button
           onClick={() => {
             playClickSound();
@@ -35,7 +34,6 @@ export const HelpRulesModal: React.FC<HelpRulesModalProps> = ({ isOpen, onClose 
         </div>
 
         <div className="space-y-4 text-xs font-semibold text-slate-700 leading-relaxed">
-          {/* Rule 1 */}
           <div className="flex items-start gap-3 p-4 bg-slate-50 border-2 border-slate-200">
             <span className="w-6 h-6 bg-slate-900 text-white font-black flex items-center justify-center text-xs shrink-0">1</span>
             <div>
@@ -46,7 +44,6 @@ export const HelpRulesModal: React.FC<HelpRulesModalProps> = ({ isOpen, onClose 
             </div>
           </div>
 
-          {/* Rule 2 */}
           <div className="flex items-start gap-3 p-4 bg-slate-50 border-2 border-slate-200">
             <span className="w-6 h-6 bg-indigo-600 text-white font-black flex items-center justify-center text-xs shrink-0">2</span>
             <div>
@@ -57,7 +54,6 @@ export const HelpRulesModal: React.FC<HelpRulesModalProps> = ({ isOpen, onClose 
             </div>
           </div>
 
-          {/* Rule 3 */}
           <div className="flex items-start gap-3 p-4 bg-amber-50 border-l-4 border-amber-500 border-y border-r border-amber-200">
             <span className="w-6 h-6 bg-amber-600 text-white font-black flex items-center justify-center text-xs shrink-0">3</span>
             <div>
@@ -70,7 +66,6 @@ export const HelpRulesModal: React.FC<HelpRulesModalProps> = ({ isOpen, onClose 
             </div>
           </div>
 
-          {/* Rule 4 */}
           <div className="flex items-start gap-3 p-4 bg-slate-50 border-2 border-slate-200">
             <span className="w-6 h-6 bg-slate-900 text-white font-black flex items-center justify-center text-xs shrink-0">4</span>
             <div>

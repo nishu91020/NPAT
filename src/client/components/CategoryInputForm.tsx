@@ -51,17 +51,14 @@ export const CategoryInputForm: React.FC<CategoryInputFormProps> = ({
     return Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000));
   }
 
-  // Reset timer & fields when puzzle changes
   useEffect(() => {
-    setAnswers({ name: '', place: '', animal: '', thing: '' });
-    setTimeLeft(puzzle.timeLimitSeconds);
+    setAnswers({ name: '', place: '', animal: '', thing: '' });    setTimeLeft(puzzle.timeLimitSeconds);
     setLives(3);
     setTimerActive(true);
     setValidationError(null);
     startedAtRef.current = Date.now();
   }, [puzzle]);
 
-  // Countdown timer effect
   useEffect(() => {
     if (!timerActive || isSubmitting) return;
 
@@ -130,9 +127,7 @@ export const CategoryInputForm: React.FC<CategoryInputFormProps> = ({
 
   return (
     <form id="npat-input-form" onSubmit={handleSubmit} className="w-full space-y-8 bg-white p-6 sm:p-10 border-2 border-slate-200 shadow-sm">
-      {/* Geometric Status Bar: Timer & Lives */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pb-6 border-b-2 border-slate-200">
-        {/* Timer Bar */}
         <div className="border-l-4 border-indigo-600 pl-4">
           <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Time Remaining</p>
           <div className="flex items-baseline gap-3 mt-1">
@@ -150,7 +145,6 @@ export const CategoryInputForm: React.FC<CategoryInputFormProps> = ({
           </div>
         </div>
 
-        {/* Geometric Lives Bar */}
         <div className="border-l-4 border-rose-500 pl-4">
           <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest">Lives Remaining</p>
           <div className="flex items-center gap-2 mt-2">
@@ -166,7 +160,6 @@ export const CategoryInputForm: React.FC<CategoryInputFormProps> = ({
         </div>
       </div>
 
-      {/* Validation Alert */}
       {validationError && (
         <div className="p-4 bg-amber-50 border-l-4 border-amber-500 text-amber-900 text-xs font-bold uppercase tracking-wider flex items-center gap-2">
           <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
@@ -174,7 +167,6 @@ export const CategoryInputForm: React.FC<CategoryInputFormProps> = ({
         </div>
       )}
 
-      {/* 4 Geometric Input Fields */}
       <div className="space-y-6">
         {CATEGORIES.map((cat) => {
           const val = answers[cat.key];
@@ -225,7 +217,6 @@ export const CategoryInputForm: React.FC<CategoryInputFormProps> = ({
         })}
       </div>
 
-      {/* Action Buttons */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4">
         <button
           type="button"

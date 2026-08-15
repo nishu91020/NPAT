@@ -172,7 +172,7 @@ generates and serves its own daily challenge. This project has had that bug once
 
 ### Playing a round
 
-All game state lives in `App.tsx` (no router, no state library) and is passed down as props.
+All daily-game state lives in `App.tsx` (no router, no state library) and is passed down as props.
 `CategoryInputForm` runs a 60-second clock and three lives; running out of time costs a life and
 resets the clock to 15 seconds.
 
@@ -507,9 +507,19 @@ with Entra ID, or a connection string for Azurite locally. `blobStore.get` treat
 
 ## 9. Client structure
 
-No router, no state library. All game state lives in `App.tsx` and is passed down as props;
-`src/client/components/` holds presentational components only, each with a local `...Props` interface
-and a named export (`App.tsx` is the only default export).
+No router, no state library. `App.tsx` owns the daily game and the current view and passes both down
+as props; `src/client/components/` holds presentational components only, each with a local `...Props`
+interface and a named export (`App.tsx` is the only default export).
+
+**Being in a room is its own module.** `useRoom.ts` owns the seat token, the player identity, the
+staleness epoch, the polling loop and every room action, and hands `App` a single `RoomController`.
+None of that is the daily game: it is only meaningful while a seat is held, and interleaving it with
+the puzzle made both harder to follow. `App` keeps only the decision a hook should not make — which
+view is on screen — which the hook asks for through one `onExited` callback.
+
+The room snapshot and the timestamp it arrived at are **one piece of state**, deliberately: a
+countdown measured against a timestamp from a different poll than the room it belongs to is wrong,
+and keeping them apart made that possible.
 
 **Audio is synthesized, not loaded.** `audio.ts` generates every sound with the Web Audio API through a
 lazily created shared `AudioContext`. There are no audio assets, and every function no-ops when the

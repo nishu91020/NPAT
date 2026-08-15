@@ -22,7 +22,6 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header id="main-header" className="w-full bg-white border-b-2 border-slate-200 sticky top-0 z-30 shadow-sm">
       <div className="max-w-5xl mx-auto px-3 sm:px-8 py-3 sm:py-4 flex flex-wrap items-center justify-between gap-3">
-        {/* App Branding — also the way back to the front door */}
         <button
           id="header-home-btn"
           type="button"
@@ -49,9 +48,7 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </button>
 
-        {/* Action Controls & Streak */}
         <div className="flex items-center gap-1.5 sm:gap-2">
-          {/* Daily Streak Badge */}
           <button
             id="header-streak-btn"
             onClick={() => {
@@ -65,7 +62,6 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="font-black text-xs sm:text-sm italic">{streak} Days</span>
           </button>
 
-          {/* Sound Toggle */}
           <button
             id="header-sound-btn"
             onClick={() => {
@@ -78,7 +74,6 @@ export const Header: React.FC<HeaderProps> = ({
             {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4 text-slate-400" />}
           </button>
 
-          {/* Stats Button */}
           <button
             id="header-stats-btn"
             onClick={() => {
@@ -91,7 +86,6 @@ export const Header: React.FC<HeaderProps> = ({
             <BarChart3 className="w-4 h-4" />
           </button>
 
-          {/* Help Button */}
           <button
             id="header-help-btn"
             onClick={() => {

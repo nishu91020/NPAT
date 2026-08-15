@@ -141,7 +141,6 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
 
   return (
     <section id="room-screen" className="w-full space-y-6">
-      {/* Room bar */}
       <div className="bg-white border-2 border-slate-200 p-4 sm:p-6 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <button
@@ -189,7 +188,6 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
         </div>
       )}
 
-      {/* Players */}
       <div className="bg-white border-2 border-slate-200 p-4 sm:p-6">
         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">
           Players
@@ -218,7 +216,6 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
         </div>
       </div>
 
-      {/* Lobby */}
       {room.phase === 'lobby' && (
         <div className="bg-white border-2 border-slate-200 p-6 sm:p-10 text-center">
           <Sparkles className="w-8 h-8 text-indigo-600 mx-auto" />
@@ -293,7 +290,6 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
         </div>
       )}
 
-      {/* Racing */}
       {room.phase === 'racing' && room.round && (
         <div className="bg-white border-2 border-slate-200 p-6 sm:p-8 space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b-2 border-slate-200">
@@ -406,7 +402,6 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
         </div>
       )}
 
-      {/* Judging */}
       {room.phase === 'judging' && (
         <div className="bg-white border-2 border-slate-200 p-10 text-center">
           <Loader2 className="w-10 h-10 text-indigo-600 mx-auto animate-spin" />
@@ -419,7 +414,6 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
         </div>
       )}
 
-      {/* Reveal */}
       {room.phase === 'reveal' && room.results && (
         <div className="space-y-6">
           <div className="bg-white border-2 border-slate-200 p-4 sm:p-6">

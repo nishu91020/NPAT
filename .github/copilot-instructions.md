@@ -230,10 +230,16 @@ its telemetry vanishes silently. It also calls `dotenv.config()` itself, because
 connection string it cannot parse, and unguarded that would crash the server before it listens — a
 typo in one env var taking the whole game down.
 
-**State and persistence.** No router and no state library. All game state lives in `App.tsx` and is passed
-down as props; `src/client/components/` holds presentational components only. Persistence is `localStorage` via
-`src/client/storage.ts` under versioned keys `npat_game_stats_v1` / `npat_today_result_v1` — bump the `_v1`
-suffix when the stored shape changes, since loaders only shallow-merge over `DEFAULT_STATS`.
+**State and persistence.** No router and no state library. `App.tsx` owns the daily game and the
+current view and passes both down as props; `src/client/components/` holds presentational components
+only. **Room state is not in `App.tsx`** — `src/client/useRoom.ts` owns the seat token, the player
+identity, the staleness epoch, the polling loop and every room action, and returns one
+`RoomController`; `App` only decides which view is on screen, which the hook asks for via `onExited`.
+The room snapshot and the timestamp it arrived at are one piece of state on purpose: a countdown
+measured against a timestamp from a different poll than the room it belongs to is wrong. Persistence
+is `localStorage` via `src/client/storage.ts` under versioned keys `npat_game_stats_v1` /
+`npat_today_result_v1` / `npat_player_v1` / `npat_room_seat_v1` — bump the `_v1` suffix when the
+stored shape changes, since loaders only shallow-merge over `DEFAULT_STATS`.
 
 ⚠️ **There is one game mode: the daily puzzle.** Practice mode was removed — there is no
 `/api/practice-challenge`, no mode toggle, and nothing in the client draws a random solo round.
