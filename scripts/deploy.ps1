@@ -134,6 +134,21 @@ function Get-AzValue {
     return ($lines -join "`n").Trim()
 }
 
+<#
+    Finds the deployment's storage account.
+
+    Filtered here rather than with a JMESPath --query, because az is a batch
+    file on Windows and cmd splits arguments on commas: the perfectly good
+    query "[?starts_with(name,'stlettersdaily')].name" arrives at the CLI in
+    pieces and fails with "].name was unexpected at this time".
+#>
+function Get-StorageAccountName {
+    $accounts = @(Invoke-AzJson storage account list -g $ResourceGroup)
+    $match = @($accounts | Where-Object { $_.name -like 'stlettersdaily*' })
+    if ($match.Count -eq 0) { return $null }
+    return $match[0].name
+}
+
 # ------------------------------ preflight -------------------------------
 
 Write-Step 'Checking prerequisites'
@@ -167,9 +182,9 @@ if ($Provision) {
 
     # Storage account names are globally unique and lowercase alphanumeric, so
     # reuse an existing one rather than inventing a new name on every run.
-    $existingStorage = @(Invoke-AzJson storage account list -g $ResourceGroup --query "[?starts_with(name,'stlettersdaily')].name")
-    if ($existingStorage.Count -gt 0) {
-        $storageName = $existingStorage[0]
+    $existingStorage = Get-StorageAccountName
+    if ($existingStorage) {
+        $storageName = $existingStorage
         Write-Ok "Storage account $storageName (existing)"
     }
     else {
@@ -267,7 +282,7 @@ if ($appExists.Count -eq 0) {
 
     Write-Step 'Creating the container app'
 
-    $storageName = @(Invoke-AzJson storage account list -g $ResourceGroup --query "[?starts_with(name,'stlettersdaily')].name")[0]
+    $storageName = Get-StorageAccountName
     $foundryEndpoint = "https://$FoundryName.services.ai.azure.com/openai/v1"
     $insightsCs = Get-AzValue monitor app-insights component show --app $InsightsName -g $ResourceGroup --query connectionString
     $blobEndpoint = "https://$storageName.blob.core.windows.net"
@@ -301,7 +316,7 @@ else {
         players two different rooms. Deploying the multiplayer build without it
         would have shipped the feature switched off.
     #>
-    $storageName = @(Invoke-AzJson storage account list -g $ResourceGroup --query "[?starts_with(name,'stlettersdaily')].name")[0]
+    $storageName = Get-StorageAccountName
     if (-not $storageName) { Fail 'No stlettersdaily* storage account found; re-run with -Provision.' }
     $blobEndpoint = "https://$storageName.blob.core.windows.net"
 
@@ -321,7 +336,7 @@ if ($Provision) {
     Write-Info "Identity $principalId"
 
     $subId = $account.id
-    $storageName = @(Invoke-AzJson storage account list -g $ResourceGroup --query "[?starts_with(name,'stlettersdaily')].name")[0]
+    $storageName = Get-StorageAccountName
 
     # Scoped to one resource each: inference on Foundry, blob data on storage,
     # pull on the registry. Nothing wider.
@@ -406,19 +421,37 @@ if ($SkipVerify) {
 
 Write-Step 'Verifying the deployment'
 
-# The app scales to zero, so the first request pays a cold start.
+<#
+    Waits for the new revision to be the one answering.
+
+    Two things make the first reply untrustworthy: the app scales to zero, so
+    the first request pays a cold start, and Container Apps keeps serving the
+    previous revision until the new one is ready. Checking the build that was
+    just deployed therefore means waiting for the rollout, not just for a 200 -
+    otherwise the checks below describe the code this deploy replaced.
+#>
 $health = $null
-foreach ($attempt in 1..5) {
+$deadline = (Get-Date).AddMinutes(5)
+$attempt = 0
+do {
+    $attempt++
     try {
-        $health = Invoke-RestMethod "$url/api/health" -TimeoutSec 60
-        break
+        $candidate = Invoke-RestMethod "$url/api/health" -TimeoutSec 60
+        # `rooms` is reported by every build this script can deploy, so an
+        # answer without it is the old revision still holding traffic.
+        if ($candidate.PSObject.Properties.Name -contains 'rooms' -and $candidate.rooms) {
+            $health = $candidate
+            break
+        }
+        Write-Info "attempt ${attempt}: previous revision still serving, waiting for the rollout..."
     }
     catch {
-        Write-Info "health check attempt $attempt failed, retrying..."
-        Start-Sleep -Seconds 10
+        Write-Info "attempt ${attempt}: health check failed, retrying..."
     }
-}
-if (-not $health) { Fail "Health check never succeeded at $url/api/health" }
+    Start-Sleep -Seconds 10
+} while ((Get-Date) -lt $deadline)
+
+if (-not $health) { Fail "The new revision never started answering at $url/api/health" }
 Write-Ok "Healthy ($($health.status))"
 
 # Rooms report their own mode, because whether they work is a deployment
