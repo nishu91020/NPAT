@@ -270,6 +270,7 @@ if ($appExists.Count -eq 0) {
     $storageName = @(Invoke-AzJson storage account list -g $ResourceGroup --query "[?starts_with(name,'stlettersdaily')].name")[0]
     $foundryEndpoint = "https://$FoundryName.services.ai.azure.com/openai/v1"
     $insightsCs = Get-AzValue monitor app-insights component show --app $InsightsName -g $ResourceGroup --query connectionString
+    $blobEndpoint = "https://$storageName.blob.core.windows.net"
 
     Invoke-Az containerapp create -n $AppName -g $ResourceGroup --environment $Environment `
         --image $image --registry-server "$Registry.azurecr.io" --registry-identity system `
@@ -281,7 +282,8 @@ if ($appExists.Count -eq 0) {
             "AZURE_OPENAI_ENDPOINT=$foundryEndpoint" `
             "AZURE_OPENAI_JUDGE_DEPLOYMENT=$JudgeDeployment" `
             "AZURE_OPENAI_BONUS_DEPLOYMENT=$BonusDeployment" `
-            "DAILY_CHALLENGE_STORAGE=https://$storageName.blob.core.windows.net" `
+            "DAILY_CHALLENGE_STORAGE=$blobEndpoint" `
+            "ROOM_STORAGE=$blobEndpoint" `
             "APPLICATIONINSIGHTS_CONNECTION_STRING=$insightsCs" `
         --only-show-errors | Out-Null
 
@@ -289,8 +291,24 @@ if ($appExists.Count -eq 0) {
 }
 else {
     Write-Step 'Updating the container app'
-    Invoke-Az containerapp update -n $AppName -g $ResourceGroup --image $image --only-show-errors | Out-Null
-    Write-Ok 'Image updated'
+
+    <#
+        Settings are reconciled on every deploy, not just on the image.
+
+        An app created before a setting existed never gets it otherwise, and
+        this one decides whether a feature runs at all: with no ROOM_STORAGE a
+        production replica disables rooms outright rather than handing two
+        players two different rooms. Deploying the multiplayer build without it
+        would have shipped the feature switched off.
+    #>
+    $storageName = @(Invoke-AzJson storage account list -g $ResourceGroup --query "[?starts_with(name,'stlettersdaily')].name")[0]
+    if (-not $storageName) { Fail 'No stlettersdaily* storage account found; re-run with -Provision.' }
+    $blobEndpoint = "https://$storageName.blob.core.windows.net"
+
+    Invoke-Az containerapp update -n $AppName -g $ResourceGroup --image $image `
+        --set-env-vars "DAILY_CHALLENGE_STORAGE=$blobEndpoint" "ROOM_STORAGE=$blobEndpoint" `
+        --only-show-errors | Out-Null
+    Write-Ok "Image updated, rooms and daily challenge pointed at $storageName"
 }
 
 # -------------------------- identity and roles --------------------------
@@ -402,6 +420,15 @@ foreach ($attempt in 1..5) {
 }
 if (-not $health) { Fail "Health check never succeeded at $url/api/health" }
 Write-Ok "Healthy ($($health.status))"
+
+# Rooms report their own mode, because whether they work is a deployment
+# decision rather than a code one: without shared storage a production replica
+# turns them off, and nothing else would say so.
+switch ($health.rooms) {
+    'shared'          { Write-Ok 'Rooms enabled (shared storage)' }
+    'single-replica'  { Write-Warn2 'Rooms are in-memory: they are lost on restart and are only correct at one replica.' }
+    default           { Fail "Rooms are '$($health.rooms)'. Set ROOM_STORAGE, or the multiplayer game is switched off." }
+}
 
 try {
     $index = Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 60
