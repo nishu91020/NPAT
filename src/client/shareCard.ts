@@ -1,8 +1,5 @@
 import { CategoryKey } from '../shared/contract';
 
-/**
- * Format share card string for Wordle-style copying
- */
 export function generateShareCard(
   dayNumber: number,
   letter: string,

@@ -7,7 +7,7 @@ describe('isAiJudged', () => {
   });
 
   it('stays true for rounds saved during the Gemini era', () => {
-    // judgedBy is persisted in localStorage, so this value arrives forever.
+
     expect(isAiJudged('gemini')).toBe(true);
   });
 

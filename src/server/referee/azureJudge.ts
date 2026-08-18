@@ -6,35 +6,23 @@ import { enforceTargetLetter, targetLetterOf, withOnlyMatchingLetters } from './
 import { CategoryJudgement, Judge, JudgeRequest, JudgeVerdict } from './types';
 import { UNSCOREABLE, onlyCategory, withoutCategories } from './contentFilter';
 
-/**
- * One category's shape, defined once here and inlined four times when the schema
- * is built. Inlining rather than using $ref/$defs keeps the wire format to the
- * plainest subset of JSON Schema, avoiding any question of how strict mode
- * handles references.
- */
 function categoryJudgementSchema() {
   return {
     type: 'object',
     additionalProperties: false,
     properties: {
       valid: { type: 'boolean' },
-      // Deliberately ordered before bonusMatched. Structured output is generated
-      // in schema order, so stating the evidence first stops the model asserting
-      // a match it then contradicts in its own feedback.
+
       bonusEvidence: { type: 'string' },
       bonusMatched: { type: 'boolean' },
       feedback: { type: 'string' },
       suggestion: { type: 'string' },
     },
-    // Strict mode requires every property to be listed.
+
     required: ['valid', 'bonusEvidence', 'bonusMatched', 'feedback', 'suggestion'],
   };
 }
 
-/**
- * Note the absence of `points`: the referee derives them, so the model cannot
- * invent a score.
- */
 export function buildVerdictSchema() {
   return {
     type: 'object',
@@ -55,10 +43,6 @@ export function buildVerdictSchema() {
   };
 }
 
-/**
- * The persona and rules, fixed for every round. Kept as a stable prefix so the
- * provider can cache it across requests.
- */
 export const JUDGE_SYSTEM_PROMPT = `You are the ultimate fun, fair, and precise AI referee for the classic word puzzle game "Name, Place, Animal, Thing".
 
 THE FIRST LETTER IS NOT YOURS TO JUDGE. Every answer you receive has already been checked mechanically against the target letter, and any answer that failed that check has been replaced with an empty string before it reached you. So never reject an answer because of the letter it starts with, and never mention the first letter as a reason. If an answer is present, treat it as starting with the target letter, however it looks to you.
@@ -84,7 +68,6 @@ Set bonusChallengeMet to true when at least ${SCORING.bonusChallengeThreshold} c
 
 Do not assign points. Scoring is applied separately.`;
 
-/** The per-round data. Everything variable lives here, after the cacheable prefix. */
 export function buildUserPrompt({ letter, answers, bonusChallenge }: JudgeRequest): string {
   const target = targetLetterOf(letter);
   const shown = (key: CategoryKey) => (answers[key] || '').trim();
@@ -99,8 +82,6 @@ Answers to evaluate:
 - Thing: "${shown('thing')}"`;
 }
 
-
-/** Shapes a parsed response into a verdict. Transport failures are already handled. */
 function toVerdict(parsed: any): JudgeVerdict {
   if (!parsed?.categories) {
     throw new Error('Azure judge returned no categories');
@@ -113,8 +94,7 @@ function toVerdict(parsed: any): JudgeVerdict {
 
     categories[key] = {
       valid: Boolean(judged.valid),
-      // bonusEvidence exists to shape generation, not to be shown; it is
-      // deliberately not carried into the domain type.
+
       bonusMatched: Boolean(judged.valid) && Boolean(judged.bonusMatched),
       feedback: judged.feedback || '',
       suggestion: judged.suggestion?.trim() || undefined,
@@ -129,24 +109,13 @@ function toVerdict(parsed: any): JudgeVerdict {
   };
 }
 
-/**
- * Judge backed by a model deployed on Microsoft Foundry.
- *
- * `deployment` is the deployment name, which is what the API's `model`
- * parameter expects — not the underlying model name.
- */
 export function createAzureJudge(client: OpenAI, deployment: string): Judge {
   const completer = createStructuredCompleter(client, deployment);
 
   async function judgeOnce(request: JudgeRequest): Promise<JudgeVerdict> {
-    // The letter rule is settled here, not by the model: wrong-letter answers
-    // are withheld from it, and the ruling on them is applied afterwards from
-    // the player's own words. Left to the model, the check failed both ways.
+
     const scoreable = withOnlyMatchingLetters(request);
 
-    // Every transport concern — strict-mode wiring, refusals, truncation,
-    // filter rejections, the parse — is handled by the completer. What is left
-    // here is the domain: turning a parsed verdict into a judged round.
     const parsed = await completer.complete<any>({
       system: JUDGE_SYSTEM_PROMPT,
       user: buildUserPrompt(scoreable),
@@ -158,18 +127,9 @@ export function createAzureJudge(client: OpenAI, deployment: string): Judge {
     return enforceTargetLetter(toVerdict(parsed), request.letter, request.answers);
   }
 
-  /**
-   * The filter rejects the whole prompt without saying which answer caused it,
-   * so each non-empty answer is submitted alone to attribute the rejection.
-   *
-   * These are attribution probes, not retries: every probe carries different
-   * content, and the original request is never repeated unchanged. They only
-   * run on the rare filtered path.
-   */
   async function attributeRejection(request: JudgeRequest): Promise<Set<CategoryKey>> {
     const blocked = new Set<CategoryKey>();
-    // Wrong-letter answers never reach the model, so they cannot be what it
-    // refused; probing them would only spend a call to learn nothing.
+
     const scoreable = withOnlyMatchingLetters(request);
 
     for (const key of CATEGORY_KEYS) {
@@ -179,7 +139,7 @@ export function createAzureJudge(client: OpenAI, deployment: string): Judge {
         await judgeOnce(onlyCategory(scoreable, key));
       } catch (err) {
         if (err instanceof ContentFilterError) blocked.add(key);
-        // Any other failure here is not evidence of filtering; leave it unblocked.
+
       }
     }
 
@@ -201,16 +161,13 @@ export function createAzureJudge(client: OpenAI, deployment: string): Judge {
   async function judgeWithIsolation(request: JudgeRequest): Promise<JudgeVerdict> {
     const blocked = await attributeRejection(request);
 
-    // Nothing attributable — the prompt as a whole tripped the filter, so no
-    // answer can be judged. Better than blaming an arbitrary category.
     if (blocked.size === 0) return allUnscoreable();
 
     let verdict: JudgeVerdict;
     try {
       verdict = await judgeOnce(withoutCategories(request, blocked));
     } catch (err) {
-      // Still filtered even with every blocked answer removed, so something
-      // outside the answers is tripping it and nothing can be scored.
+
       if (err instanceof ContentFilterError) return allUnscoreable();
       throw err;
     }
@@ -225,8 +182,7 @@ export function createAzureJudge(client: OpenAI, deployment: string): Judge {
       try {
         return await judgeOnce(request);
       } catch (err) {
-        // A filtered round is handled here rather than falling through to the
-        // heuristic, which would launder blocked content into a scored round.
+
         if (err instanceof ContentFilterError) return judgeWithIsolation(request);
         throw err;
       }

@@ -120,7 +120,7 @@ describe('applyBonusRuling', () => {
 
     expect(applied.categories.thing.bonusMatched).toBe(true);
     expect(applied.categories.name.bonusMatched).toBe(true);
-    // Two matches meet a 'some' scope, so the round's own tally is restated.
+
     expect(applied.bonusChallengeMet).toBe(true);
   });
 

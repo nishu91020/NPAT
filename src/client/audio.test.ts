@@ -1,12 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-/**
- * Counts oscillators, because that is what actually makes a noise.
- *
- * Asserting on a mute flag would pass whether or not the flag reached the sound
- * functions — which is exactly the bug: the flag existed, and the sounds played
- * anyway.
- */
 let created = 0;
 
 class FakeAudioContext {

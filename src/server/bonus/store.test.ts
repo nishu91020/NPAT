@@ -7,7 +7,6 @@ function challenge(id: string): BonusChallenge {
   return { id, title: id, description: id, icon: 'Sparkles', ruleHint: id };
 }
 
-/** A source that returns a distinct challenge each call, so drift is visible. */
 function countingSource(label: string): BonusChallengeSource & { calls: number } {
   const source = {
     calls: 0,
@@ -33,7 +32,6 @@ describe('cachedPerDate with a shared store', () => {
     const a = await replicaA.forDate(DATE, 'S');
     const b = await replicaB.forDate(DATE, 'S');
 
-    // Without a shared store these would be replica-a-1 and replica-b-1.
     expect(b).toEqual(a);
     expect(second.calls).toBe(0);
   });
@@ -43,7 +41,6 @@ describe('cachedPerDate with a shared store', () => {
     const first = countingSource('replica-a');
     const second = countingSource('replica-b');
 
-    // Both miss the empty store, so both generate before either publishes.
     const [a, b] = await Promise.all([
       cachedPerDate(() => first, { store }).forDate(DATE, 'S'),
       cachedPerDate(() => second, { store }).forDate(DATE, 'S'),
@@ -137,7 +134,6 @@ describe('cachedPerDate origin reporting', () => {
 
     await cachedPerDate(() => countingSource('a'), { store }).forDate(DATE, 'S');
 
-    // A second replica, with its own empty memory cache.
     await cachedPerDate(() => countingSource('b'), {
       store,
       onServed: (origin) => origins.push(origin),
@@ -147,10 +143,7 @@ describe('cachedPerDate origin reporting', () => {
   });
 
   it('reports "store", not "generated", when it loses the write race', async () => {
-    // Both replicas miss the empty store and generate, but only one write wins.
-    // Reporting the loser as 'generated' would show two generations for a date
-    // that was only generated once — the exact thing this dimension exists to
-    // observe.
+
     const store = createMemoryStore();
     const origins: string[] = [];
 

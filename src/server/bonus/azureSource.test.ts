@@ -81,28 +81,24 @@ describe('prompt split', () => {
   });
 
   it('rules out challenges a category could never satisfy', () => {
-    // Observed live: "Use only plants or flowers for all answers" — impossible,
-    // since a Name is a person and an Animal is a creature.
+
     expect(BONUS_SYSTEM_PROMPT).toContain('IS IT POSSIBLE');
     expect(BONUS_SYSTEM_PROMPT).toContain('All answers must be plants');
   });
 
   it('rules out challenges that merely restate the target letter', () => {
-    // Observed live after the first fix: "Every answer must start with F",
-    // which every valid answer earns for free.
+
     expect(BONUS_SYSTEM_PROMPT).toContain('IS IT ACTUALLY EXTRA');
     expect(BONUS_SYSTEM_PROMPT).toContain('Every answer must start with F');
   });
 
   it('forbids smuggling the target letter back in as a qualifier', () => {
-    // Observed live: "The Place must be a capital city starting with S", which
-    // passes TEST 2 on its face while re-adding the letter rule at the end.
+
     expect(BONUS_SYSTEM_PROMPT).toContain('MUST NOT MENTION THE TARGET LETTER');
   });
 
   it('forbids alliterating every title on the target letter', () => {
-    // Twelve live generations for S gave "Stretchy S Words", "Space Seekers",
-    // "Seafood Savor", "Sporty Squad" — the source of the sameness complaint.
+
     expect(BONUS_SYSTEM_PROMPT).toContain('NOT ALLITERATION');
   });
 });
@@ -134,8 +130,7 @@ describe('rule families', () => {
   });
 
   it('offers enough distinct families that a month of play does not repeat', () => {
-    // The model writes near-identical rules within a family, so the family
-    // count is the real ceiling on variety, not the number of rounds.
+
     expect(new Set(RULE_FAMILIES).size).toBe(RULE_FAMILIES.length);
     expect(RULE_FAMILIES.length).toBeGreaterThanOrEqual(31);
   });
@@ -176,14 +171,13 @@ describe('ruleFamilyForDate', () => {
   });
 
   it('falls back to a random family for an unparseable date', () => {
-    expect(RULE_FAMILIES).toContain(ruleFamilyForDate('practice'));
+    expect(RULE_FAMILIES).toContain(ruleFamilyForDate('not-a-date'));
   });
 });
 
 describe('createRecentAvoidingPicker', () => {
   it('does not repeat a recently used family', () => {
-    // Always drawing index 0 of the eligible pool: without the memory this
-    // would return the same family forever.
+
     const pick = createRecentAvoidingPicker(5, () => 0);
     const picks = [pick(), pick(), pick(), pick(), pick()];
 
@@ -225,8 +219,7 @@ describe('createAzureBonusSource', () => {
   });
 
   it('asks the injected picker for the family, once per generation', async () => {
-    // How variety is achieved is the caller's decision: the daily challenge
-    // rotates by date, practice avoids recent repeats.
+
     const { client, create } = fakeClient(JSON.stringify(complete));
     const pickFamily = vi.fn(() => 'a rule about word length, invented for this test');
 
@@ -247,8 +240,7 @@ describe('createAzureBonusSource', () => {
   });
 
   it('drops the examples rather than carrying them onto the wire', async () => {
-    // They are the model's proof that the rule is playable, not part of the
-    // challenge — and publishing them to every player would be a spoiler.
+
     const { client } = fakeClient(JSON.stringify(complete));
 
     const challenge = await createAzureBonusSource(client, DEPLOYMENT).next('S');
@@ -293,11 +285,6 @@ describe('createAzureBonusSource', () => {
   });
 });
 
-/**
- * These paths were unhandled before the completer was extracted: this adapter
- * parsed the raw content itself, so a refusal or a truncated response surfaced
- * as a bare JSON syntax error with nothing naming the real cause.
- */
 describe('failures inherited from the completer', () => {
   it('names a truncated response instead of reporting a syntax error', async () => {
     const create = vi.fn(async () => ({
@@ -337,10 +324,6 @@ describe('failures inherited from the completer', () => {
   });
 });
 
-/**
- * The rule is what the referee acts on, so a wrong one silently misjudges every
- * round it appears in. Degrading to "ask the judge" is the safe direction.
- */
 describe('toBonusRule', () => {
   it('keeps a well-formed mechanical rule', () => {
     expect(toBonusRule({ scope: 'all', checkKind: 'adjacentVowels', checkValue: '' })).toEqual({
@@ -383,10 +366,6 @@ describe('toBonusRule', () => {
   });
 });
 
-/**
- * Number('') is 0 and finite, so an empty threshold used to survive clamping and
- * make the bonus free for every answer, for the whole day the challenge is stored.
- */
 describe('toBonusRule numeric thresholds', () => {
   it.each(['', '  ', '0', '-2'])('falls back when the threshold is %j', (value) => {
     expect(toBonusRule({ scope: 'all', checkKind: 'minLength', checkValue: value }).checkKind).toBe(
@@ -422,8 +401,7 @@ describe('toBonusRule rejects rules no answer could satisfy', () => {
   });
 
   it('rescues "ends in a vowel" as its own kind rather than dropping the check', () => {
-    // Observed live: the rule arrived as an endsWith value no word can end with,
-    // so "Vase" missed the bonus under a rule it satisfied.
+
     const rule = toBonusRule({ scope: 'thing', checkKind: 'endsWith', checkValue: 'a vowel' });
 
     expect(rule.checkKind).toBe('endsWithVowel');
@@ -452,8 +430,7 @@ describe('toBonusRule rejects rules no answer could satisfy', () => {
 
 describe('restatesTargetLetter', () => {
   it('catches the qualifier that was observed live', () => {
-    // "The Place must be a capital city starting with S" passes the "actually
-    // extra" test on its face while re-adding the letter rule at the end.
+
     expect(restatesTargetLetter('The Place must be a capital city starting with S', 'S')).toBe(
       true
     );
@@ -471,7 +448,7 @@ describe('restatesTargetLetter', () => {
   });
 
   it('leaves a rule about how words END alone', () => {
-    // A genuinely different rule: valid answers do not earn it for free.
+
     expect(restatesTargetLetter('Every answer must end with S', 'S')).toBe(false);
   });
 
@@ -481,7 +458,7 @@ describe('restatesTargetLetter', () => {
   });
 
   it('does not fire on a word that merely begins with the letter', () => {
-    // "starting with Spain" is a phrase about a place, not the letter rule.
+
     expect(restatesTargetLetter('At least 2 answers must relate to Spain.', 'S')).toBe(false);
     expect(restatesTargetLetter('A journey starting with Spain counts.', 'S')).toBe(false);
   });
@@ -518,23 +495,21 @@ describe('examplesProveChallenge', () => {
   const four = { name: 'Stella', place: 'Sassari', animal: 'Squirrel', thing: 'Scissors' };
 
   it('accepts examples that all start with the letter and satisfy an "all" rule', () => {
-    // Every one of these carries a double letter.
+
     const rule = { scope: 'all', checkKind: 'doubleLetter', checkValue: '' } as const;
 
     expect(examplesProveChallenge(four, 'S', rule)).toBe(true);
   });
 
   it('rejects an "all" rule the model cannot demonstrate for every category', () => {
-    // The exact failure this exists for: a rule with no possible Animal for
-    // this letter is unplayable, however good it looks in the abstract.
+
     const rule = { scope: 'all', checkKind: 'doubleLetter', checkValue: '' } as const;
 
     expect(examplesProveChallenge({ ...four, animal: 'Shark' }, 'S', rule)).toBe(false);
   });
 
   it('rejects a threshold no real word reaches for this letter', () => {
-    // "Every answer must have 3 vowels" — plausible in the abstract, and the
-    // model's own Thing does not manage it.
+
     const rule = { scope: 'all', checkKind: 'minVowels', checkValue: '3' } as const;
 
     expect(examplesProveChallenge(four, 'S', rule)).toBe(false);
@@ -550,11 +525,10 @@ describe('examplesProveChallenge', () => {
   it('asks only the named category to satisfy a scoped rule', () => {
     const rule = { scope: 'thing', checkKind: 'doubleLetter', checkValue: '' } as const;
 
-    // Only Scissors has to carry the double letter.
     expect(
       examplesProveChallenge({ ...four, name: 'Sam', animal: 'Shark' }, 'S', rule)
     ).toBe(true);
-    // ...and when it does not, the rule is not demonstrated.
+
     expect(examplesProveChallenge({ ...four, thing: 'Sword' }, 'S', rule)).toBe(false);
   });
 
@@ -574,7 +548,7 @@ describe('examplesProveChallenge', () => {
   });
 
   it('refuses an example that does not start with the target letter', () => {
-    // A word that is not a legal answer proves nothing about the rule.
+
     const rule = { scope: 'some', checkKind: 'none', checkValue: '' } as const;
 
     expect(examplesProveChallenge({ ...four, animal: 'Tiger' }, 'S', rule)).toBe(false);
@@ -590,7 +564,7 @@ describe('examplesProveChallenge', () => {
   });
 
   it('accepts a rule only a judge could check, once the letters are right', () => {
-    // "Relates to the sea" is world knowledge; the letter is all we can verify.
+
     const rule = { scope: 'all', checkKind: 'none', checkValue: '' } as const;
 
     expect(examplesProveChallenge(four, 'S', rule)).toBe(true);
@@ -614,8 +588,7 @@ describe('createAzureBonusSource rejects an undemonstrated challenge', () => {
   });
 
   it('checks the examples against the clamped rule, not the raw one', async () => {
-    // toBonusRule downgrades an unusable ending to a judged rule, so the proof
-    // must be measured against the rule the round will actually be scored under.
+
     const { client } = fakeClient(
       JSON.stringify({
         ...complete,
@@ -630,18 +603,15 @@ describe('createAzureBonusSource rejects an undemonstrated challenge', () => {
   });
 });
 
-
 describe('one replacement attempt for an unplayable challenge', () => {
   const undemonstrated = {
     ...complete,
     description: 'Every answer must contain two vowels side by side.',
     rule: { scope: 'all', checkKind: 'adjacentVowels', checkValue: '' },
-    // Observed live for the letter K: Kenya has no two vowels together, so the
-    // model never demonstrated the rule it had just written.
+
     examples: { name: 'Keenan', place: 'Kenya', animal: 'Koala', thing: 'Kookaburra' },
   };
 
-  /** Answers with each content in turn, so a retry can be given a better reply. */
   function replyingInTurn(...contents: string[]) {
     const create = vi.fn(async (_args: any) => ({
       choices: [
@@ -687,8 +657,7 @@ describe('one replacement attempt for an unplayable challenge', () => {
   });
 
   it('never asks again after a content filter rejection', async () => {
-    // A filtered prompt must never be repeated; only the game's own verdict on
-    // a well-formed reply earns another attempt.
+
     const create = vi.fn(async () => {
       throw new ContentFilterError('blocked');
     });

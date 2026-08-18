@@ -13,7 +13,6 @@ const bonus: BonusChallenge = {
   ruleHint: 'Indian names, places, wildlife or cultural items.',
 };
 
-/** The verdict actually observed from a live model: Tiger passed for "S". */
 function overGenerousVerdict(): JudgeVerdict {
   const pass = (feedback: string) => ({ valid: true, bonusMatched: true, feedback });
 
@@ -34,7 +33,7 @@ const answers = { name: 'Shivaji', place: 'Srinagar', animal: 'Tiger', thing: 'Z
 
 describe('enforceTargetLetter', () => {
   it('overrules the model when an answer starts with the wrong letter', () => {
-    // Observed live: a strongly on-theme answer beat the letter rule.
+
     const corrected = enforceTargetLetter(overGenerousVerdict(), 'S', answers);
 
     expect(corrected.categories.animal.valid).toBe(false);
@@ -56,7 +55,6 @@ describe('enforceTargetLetter', () => {
     const verdict = overGenerousVerdict();
     verdict.categories.place = { valid: true, bonusMatched: false, feedback: 'x' };
 
-    // Only name legitimately matches once Tiger is overruled — below the threshold of 2.
     const corrected = enforceTargetLetter(verdict, 'S', answers);
 
     expect(corrected.bonusChallengeMet).toBe(false);
@@ -95,8 +93,7 @@ describe('enforceTargetLetter', () => {
   });
 
   it('states the letter rule as the reason a wrong-letter answer failed', () => {
-    // The judge never saw "Zzzz" — it was withheld — so its reason describes a
-    // blank. The player is told the rule their word actually broke.
+
     const corrected = enforceTargetLetter(overGenerousVerdict(), 'S', answers);
 
     expect(corrected.categories.thing.valid).toBe(false);
@@ -175,7 +172,7 @@ describe('withOnlyMatchingLetters', () => {
   });
 
   it('trims what it passes on, so stray whitespace is never the first character', () => {
-    // Observed live: an untrimmed answer reads as starting with a space.
+
     expect(withOnlyMatchingLetters(request).answers.name).toBe('Sarah');
   });
 
@@ -243,8 +240,6 @@ describe('createAzureJudge applies the letter rule', () => {
     }));
     const client = { chat: { completions: { create } } } as unknown as OpenAI;
 
-    // Observed live: the model failed "Lizabeth" for the letter L, reporting a
-    // first-letter mismatch on a word that plainly starts with L.
     const verdict = await createAzureJudge(client, 'npat-judge').judge({
       letter: 'L',
       answers: { name: ' Lizabeth', place: 'London', animal: 'Tiger', thing: 'Lamp' },

@@ -9,7 +9,6 @@ import { RENDERABLE_ICONS } from './icons';
 
 export { RENDERABLE_ICONS };
 
-/** The checks the game can settle itself. Kept in step with BonusCheckKind. */
 export const BONUS_CHECK_KINDS = [
   'none',
   'minLength',
@@ -22,10 +21,6 @@ export const BONUS_CHECK_KINDS = [
 
 const BONUS_SCOPES = ['all', 'some', 'name', 'place', 'animal', 'thing'] as const;
 
-/**
- * Strict mode cannot express maxLength, so the character limits stay as prompt
- * instructions and the parser stays defensive about what comes back.
- */
 export function buildBonusSchema() {
   return {
     type: 'object',
@@ -36,8 +31,7 @@ export function buildBonusSchema() {
       description: { type: 'string' },
       icon: { type: 'string', enum: [...RENDERABLE_ICONS] },
       ruleHint: { type: 'string' },
-      // Flat rather than a discriminated union: strict mode handles a fixed
-      // object far more reliably than anyOf, and the parser clamps it anyway.
+
       rule: {
         type: 'object',
         additionalProperties: false,
@@ -48,8 +42,7 @@ export function buildBonusSchema() {
         },
         required: ['scope', 'checkKind', 'checkValue'],
       },
-      // Generated last, so the model must prove the rule it has just committed
-      // to rather than writing examples and reverse-engineering a rule to fit.
+
       examples: {
         type: 'object',
         additionalProperties: false,
@@ -175,23 +168,8 @@ VARY THE SENTENCE. Do not reach for one stock construction. "At least 2 answers 
 for every theme reads like a template, and it is. Say what the rule is in the most natural words
 for that particular rule, while keeping it exact.`;
 
-/**
- * Families of rule, one picked per request.
- *
- * Left to itself the model anchors hard on whichever example it saw first —
- * six consecutive generations all came back as "every answer must end with X".
- * Naming the family explicitly buys variety that temperature alone does not.
- *
- * The list is long and each entry is *specific* on purpose. A short list of
- * broad families ("a rule about a shared theme") is barely better than none:
- * the model writes near-identical output within a family, so the effective
- * number of distinct challenges is the number of families, not the number of
- * rounds. Twelve generations against the old thirteen-entry list produced two
- * challenges that differed only in a threshold, and five phrased identically.
- */
 export const RULE_FAMILIES = [
-  // Word shape — the checkable kinds. Spread across scopes so it is not always
-  // "all four answers must be N letters long".
+
   'a rule about word length, requiring every answer to reach a minimum number of letters',
   'a rule about word length that constrains only ONE named category, such as requiring a long Thing',
   'a rule requiring every answer to contain a minimum number of vowels',
@@ -201,8 +179,6 @@ export const RULE_FAMILIES = [
   'a rule about how the words end, requiring one named category to end in a vowel',
   'a rule about a specific word ending, such as every answer ending in the same consonant (never the target letter)',
 
-  // Shared themes, named concretely. "a shared theme" alone always came back as
-  // "at least 2 answers must relate to X".
   'a rule about a shared theme of the sea, rivers or water',
   'a rule about a shared theme of weather, the sky or the seasons',
   'a rule about a shared theme of forests, plants or the wild',
@@ -227,7 +203,6 @@ export const RULE_FAMILIES = [
   'a rule about a shared theme of the human body or health',
   'a rule about a shared theme of danger, mystery or the frightening',
 
-  // Single-category constraints, one per plausible angle.
   'a rule constraining only the Name, requiring a famous or historical person',
   'a rule constraining only the Name, requiring a character from a book, film or myth',
   'a rule constraining only the Name, requiring a name commonly given to more than one gender or used worldwide',
@@ -252,26 +227,10 @@ export function pickRuleFamily(random: () => number = Math.random): string {
   return RULE_FAMILIES[Math.floor(random() * RULE_FAMILIES.length)];
 }
 
-/**
- * Whether a description smuggles the letter rule back in.
- *
- * Every answer already has to start with the target letter, so a bonus that
- * says so again is earned for free. The prompt forbids it, but the prompt also
- * forbade it before and the model still produced "The Place must be a capital
- * city starting with S" — and unlike a bad rule, this one is decidable here.
- * Everything else mechanically decidable in this game is settled in code rather
- * than trusted to the model; this is the same call.
- *
- * Only phrasings that tie the letter to the START of a word count. "Every
- * answer must end with S" is a genuinely different rule, and a description that
- * merely happens to contain the letter as a word ("A Place in Spain") is not a
- * claim about first letters at all.
- */
 export function restatesTargetLetter(description: string, letter: string): boolean {
   const target = (letter || '').trim().charAt(0);
   if (!target) return false;
 
-  // "starting with S", "begin with the letter S", "start with an 'S'"
   const pattern = new RegExp(
     `\\b(?:start|starts|starting|begin|begins|beginning)\\s+with\\s+` +
       `(?:(?:a|an|the)\\s+)?(?:letters?\\s+)?["'“”‘’]?${target}(?![a-z])`,
@@ -281,55 +240,29 @@ export function restatesTargetLetter(description: string, letter: string): boole
   return pattern.test(description || '');
 }
 
-/**
- * Step between consecutive days in the daily rotation.
- *
- * Any value coprime with RULE_FAMILIES.length walks the whole list before
- * repeating any entry, so a full cycle is guaranteed; a stride of 1 would do
- * that too but would march the themes through in written order, which reads as
- * "sea, then weather, then forests" — a pattern a daily player would notice.
- * A test pins both the full cycle and that no two consecutive days match.
- */
 const DAILY_FAMILY_STRIDE = 17;
 
-/** Days since the Unix epoch for a YYYY-MM-DD string, or NaN if unparseable. */
 function dayOrdinal(dateStr: string): number {
   const ms = Date.parse(`${dateStr}T00:00:00Z`);
   return Number.isFinite(ms) ? Math.floor(ms / 86_400_000) : NaN;
 }
 
-/**
- * The rule family for a date — deterministic, and never the same two days
- * running.
- *
- * Picking at random per request meant consecutive days could draw the same
- * family, which is exactly the repetition a once-a-day game cannot hide. The
- * daily challenge is generated once per date anyway, so the family may as well
- * be a function of that date.
- */
 export function ruleFamilyForDate(dateStr: string): string {
   const ordinal = dayOrdinal(dateStr);
   if (!Number.isFinite(ordinal)) return pickRuleFamily();
 
   const n = RULE_FAMILIES.length;
-  // Positive modulo: dates before 1970 would otherwise index off the front.
+
   const index = (((ordinal * DAILY_FAMILY_STRIDE) % n) + n) % n;
   return RULE_FAMILIES[index];
 }
 
-/**
- * A picker that will not repeat any of the last `memory` families.
- *
- * Practice rounds are drawn per request, so a uniform draw hands the player the
- * same family twice in a row often enough to feel broken. Remembering the
- * recent ones costs nothing and removes the case players actually notice.
- */
 export function createRecentAvoidingPicker(
   memory = 8,
   random: () => number = Math.random
 ): () => string {
   const recent: string[] = [];
-  // Never let the exclusion list swallow the whole pool, which would loop forever.
+
   const limit = Math.max(0, Math.min(memory, RULE_FAMILIES.length - 1));
 
   return () => {
@@ -349,23 +282,6 @@ export function buildBonusUserPrompt(letter: string, ruleFamily = pickRuleFamily
 For this round, write ${ruleFamily}.`;
 }
 
-/**
- * Whether the model's own examples demonstrate its rule is playable.
- *
- * A rule is never possible in the abstract — only combined with the letter of
- * the day. "Every answer must contain 3 vowels" is comfortable for A and may
- * have no Animal at all for another letter, and a category with no possible
- * answer can never score the bonus however well the round is played. Asking for
- * a worked example per category turns that from a judgement into a fact: the
- * model supplies the world knowledge (is "Stella" a name?) and the game checks
- * the mechanics (does "Stella" start with S and carry a double letter?), which
- * is the same division of labour the referee uses.
- *
- * The rule's own scope decides how much the examples must prove, via the same
- * `bonusMetFor` the scorer uses — a rule naming one category is demonstrated by
- * that category alone. Every example must still start with the target letter,
- * because one that does not is not a legal answer and proves nothing.
- */
 export function examplesProveChallenge(
   examples: unknown,
   letter: string,
@@ -380,30 +296,11 @@ export function examplesProveChallenge(
     words[key] = word;
   }
 
-  // null means the check needs world knowledge, which is not evidence against
-  // the example — only an outright false is.
   const satisfied = CATEGORY_KEYS.filter((key) => satisfiesCheck(rule, words[key]) !== false);
 
   return bonusMetFor(rule.scope, satisfied);
 }
 
-/**
- * Bonus challenge generator backed by a model deployed on Microsoft Foundry.
- *
- * `deployment` is the deployment name, which is what the API's `model`
- * parameter expects — not the underlying model name.
- *
- * `pickFamily` is injected so callers decide how variety is achieved: the daily
- * challenge rotates deterministically by date, practice avoids recent repeats.
- */
-/**
- * A challenge the game rejected as unfit to serve — as opposed to a transport
- * failure, a refusal or a content-filter rejection, which the completer names.
- *
- * Its own class because it is the one failure worth another attempt: the
- * request was fine and the model simply produced something unplayable, so
- * asking again is a fresh roll rather than a retry of a rejected prompt.
- */
 export class UnfitChallengeError extends Error {
   constructor(message: string) {
     super(message);
@@ -419,9 +316,7 @@ export function createAzureBonusSource(
   const completer = createStructuredCompleter(client, deployment);
 
   async function generate(letter: string): Promise<BonusChallenge> {
-    // Refusals, truncation and filter rejections are named by the completer.
-    // Previously this parsed the raw content itself, so a truncated response
-    // surfaced as a bare JSON syntax error.
+
     const parsed = await completer.complete<any>({
       system: BONUS_SYSTEM_PROMPT,
       user: buildBonusUserPrompt(letter, pickFamily()),
@@ -440,14 +335,9 @@ export function createAzureBonusSource(
       );
     }
 
-    // The schema constrains this, but the clamp stays: the UI can only render
-    // these seven icons, whatever the model sends.
     const icon = RENDERABLE_ICONS.includes(parsed.icon) ? parsed.icon : 'Sparkles';
     const rule = toBonusRule(parsed.rule);
 
-    // The examples are the model's proof that its rule has real answers for
-    // this letter. Checked against the clamped rule, not the raw one, so the
-    // proof covers the rule the round will actually be scored under.
     if (!examplesProveChallenge(parsed.examples, letter, rule)) {
       throw new UnfitChallengeError(
         `Azure bonus source could not demonstrate "${parsed.description}" for letter ` +
@@ -470,11 +360,7 @@ export function createAzureBonusSource(
       try {
         return await generate(letter);
       } catch (err) {
-        // Only the game's own verdict earns a second attempt, and only one:
-        // roughly one generation in twelve is unplayable, and falling straight
-        // back would spend a whole day on a built-in challenge for that. A
-        // refusal or a content_filter rejection must never be retried, so
-        // anything the completer raised is rethrown untouched.
+
         if (!(err instanceof UnfitChallengeError)) throw err;
 
         console.warn(`${err.message} — generating a replacement.`);
@@ -484,13 +370,6 @@ export function createAzureBonusSource(
   };
 }
 
-/**
- * Clamps the machine-checkable rule to something the referee can trust.
- *
- * Anything unrecognised degrades to a judged rule rather than being dropped,
- * because a wrong mechanical check silently misjudges every round it appears in,
- * while "ask the judge" is merely the behaviour that existed before.
- */
 export function toBonusRule(raw: unknown): BonusRule {
   const candidate = (raw ?? {}) as Partial<BonusRule>;
   const scope = BONUS_SCOPES.includes(candidate.scope as never) ? candidate.scope! : 'some';
@@ -502,15 +381,10 @@ export function toBonusRule(raw: unknown): BonusRule {
   const judged: BonusRule = { scope, checkKind: 'none', checkValue: '' };
   if (checkKind === 'none') return judged;
 
-  // A numeric check without a usable threshold would credit every word, so it
-  // degrades rather than guessing one. Number('') is 0 and finite, which is why
-  // this tests the parsed value rather than just its finiteness.
   const needsNumber = checkKind === 'minLength' || checkKind === 'minVowels';
   const threshold = Number(checkValue.trim() || NaN);
   if (needsNumber && (!Number.isFinite(threshold) || threshold < 1)) return judged;
 
-  // An ending the referee cannot read is worse than no check: it would refuse
-  // every answer all day. "Ends in a vowel" is the one kind it can recover.
   if (checkKind === 'endsWith' && endingsOf(checkValue).length === 0) {
     return /vowel/i.test(checkValue)
       ? { scope, checkKind: 'endsWithVowel', checkValue: '' }

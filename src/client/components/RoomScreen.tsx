@@ -20,12 +20,12 @@ import {
 
 interface RoomScreenProps {
   room: RoomView;
-  /** When `room` arrived, so the countdown measures against the server's clock. */
+
   fetchedAtMs: number;
   error: string | null;
   isBusy: boolean;
   onStartRound: () => void;
-  /** `auto` marks the submission the clock made, not the player. */
+
   onSubmit: (answers: UserAnswers, auto?: boolean) => void;
   onNextRound: () => void;
   onSetRounds: (totalRounds: number) => void;
@@ -49,11 +49,9 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
 }) => {
   const [answers, setAnswers] = useState<UserAnswers>(EMPTY_ANSWERS);
   const [copied, setCopied] = useState(false);
-  // Re-renders once a second so the countdown moves between polls.
   const [, setNowTick] = useState(0);
   const roundNumber = room.round?.number ?? 0;
   const lastRoundRef = useRef(roundNumber);
-  /** Whether the clock has already submitted for the round now in progress. */
   const hasAutoSubmitted = useRef(false);
 
   useEffect(() => {
@@ -66,8 +64,6 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
   const youAreRacing = Boolean(you?.racing);
   const timeLeft = room.round ? secondsLeft(room.round, Date.now() - fetchedAtMs) : 0;
 
-  // First place can be shared, so the winner is every row on rank one — naming
-  // only the first would hand the match to whoever happened to sort highest.
   const champions = room.standings.filter((row) => row.rank === 1).map((row) => row.name);
   const championLine =
     champions.length === 0
@@ -76,41 +72,23 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
         ? ` — ${champions[0]} takes it.`
         : ` — ${champions.slice(0, -1).join(', ')} and ${champions[champions.length - 1]} tie it.`;
 
-  // A new round means a clean sheet.
   useEffect(() => {
     if (roundNumber !== lastRoundRef.current) {
       lastRoundRef.current = roundNumber;
       setAnswers(EMPTY_ANSWERS);
-      // ⚠️ Re-armed on any CHANGE of round, never on the round's number. Round
-      // numbers restart at 1 for a new match, and this component is not
-      // remounted in between — so a guard compared against the number stayed
-      // set from match one and round one of match two silently never
-      // auto-submitted, scoring blank for answers the player had typed.
       hasAutoSubmitted.current = false;
     }
   }, [roundNumber]);
 
-  // The last ten seconds tick, matching the solo game.
   useEffect(() => {
     if (room.phase === 'racing' && youAreRacing && !youHaveSubmitted && timeLeft <= 10 && timeLeft > 0) {
       playTickSound();
     }
   }, [timeLeft, room.phase, youAreRacing, youHaveSubmitted]);
 
-  // Read by the auto-submit below, so it always sends the latest keystrokes
-  // without re-arming itself on every one of them.
   const answersRef = useRef(answers);
   answersRef.current = answers;
 
-  /**
-   * ⚠️ The clock submits for you.
-   *
-   * Whatever is typed when the countdown reaches zero is sent as it stands, so a
-   * player who ran out of time still scores what they wrote. The server does keep
-   * a fallback for anyone who has gone, but that one scores blank — this is what
-   * makes a timeout keep the answers. Guarded per round, because the countdown
-   * re-renders once a second and this must fire exactly once.
-   */
   useEffect(() => {
     if (room.phase !== 'racing' || !youAreRacing || youHaveSubmitted) return;
     if (timeLeft > 0 || hasAutoSubmitted.current) return;
@@ -141,7 +119,6 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
 
   return (
     <section id="room-screen" className="w-full space-y-6">
-      {/* Room bar */}
       <div className="bg-white border-2 border-slate-200 p-4 sm:p-6 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <button
@@ -189,7 +166,6 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
         </div>
       )}
 
-      {/* Players */}
       <div className="bg-white border-2 border-slate-200 p-4 sm:p-6">
         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">
           Players
@@ -218,7 +194,6 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
         </div>
       </div>
 
-      {/* Lobby */}
       {room.phase === 'lobby' && (
         <div className="bg-white border-2 border-slate-200 p-6 sm:p-10 text-center">
           <Sparkles className="w-8 h-8 text-indigo-600 mx-auto" />
@@ -233,8 +208,6 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
               : 'Waiting for the host to start the next round.'}
           </p>
 
-          {/* The match length. Settled before round one, because moving the finish
-              line mid-match would move it for people who have already raced. */}
           <div className="mt-6 inline-block border-l-4 border-indigo-600 pl-4 text-left">
             <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">
               Match length
@@ -293,7 +266,6 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
         </div>
       )}
 
-      {/* Racing */}
       {room.phase === 'racing' && room.round && (
         <div className="bg-white border-2 border-slate-200 p-6 sm:p-8 space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b-2 border-slate-200">
@@ -406,7 +378,6 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
         </div>
       )}
 
-      {/* Judging */}
       {room.phase === 'judging' && (
         <div className="bg-white border-2 border-slate-200 p-10 text-center">
           <Loader2 className="w-10 h-10 text-indigo-600 mx-auto animate-spin" />
@@ -419,7 +390,6 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
         </div>
       )}
 
-      {/* Reveal */}
       {room.phase === 'reveal' && room.results && (
         <div className="space-y-6">
           <div className="bg-white border-2 border-slate-200 p-4 sm:p-6">

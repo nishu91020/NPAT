@@ -3,7 +3,6 @@ import { BonusChallenge, CategoryKey } from '../../shared/contract';
 import { bonusRuleApplies, enforceSuggestions, suggestionStands } from './suggestion';
 import { CategoryJudgement, JudgeVerdict } from './types';
 
-/** The challenge from the round that exposed this: letter H, "hh" required. */
 const doubleH: BonusChallenge = {
   id: 'double_h',
   title: 'Double H Power',
@@ -23,7 +22,6 @@ const unknowable: BonusChallenge = {
   rule: { scope: 'all', checkKind: 'none', checkValue: '' },
 };
 
-/** Only 2 of 4 answers need to match, so no single word can be condemned by it. */
 const someOnly: BonusChallenge = {
   ...doubleH,
   rule: { scope: 'some', checkKind: 'doubleLetter', checkValue: 'h' },
@@ -47,7 +45,7 @@ function verdictWith(suggestions: Partial<Record<CategoryKey, string>>): JudgeVe
 
 describe('suggestionStands', () => {
   it('rejects the suggestion that exposed this — wrong letter and no double h', () => {
-    // Observed live: a rejected Name under letter H was offered "Rhythm".
+
     expect(suggestionStands('Rhythm', 'name', 'H', doubleH)).toBe(false);
   });
 
@@ -64,9 +62,7 @@ describe('suggestionStands', () => {
   });
 
   it('does not hold a suggestion to a "some" rule it was never required to meet', () => {
-    // scope "some" asks only that SCORING.bonusChallengeThreshold answers match,
-    // so a suggestion failing the check may be one of the two that never had to.
-    // Holding it to an "all"-strength check silently dropped good suggestions.
+
     expect(suggestionStands('Harry', 'name', 'H', someOnly)).toBe(true);
   });
 
@@ -84,7 +80,7 @@ describe('suggestionStands', () => {
   });
 
   it('asks nothing of a category the rule does not name', () => {
-    // "The Thing must contain hh" says nothing about a Name.
+
     expect(suggestionStands('Harry', 'name', 'H', thingOnly)).toBe(true);
     expect(suggestionStands('Hammer', 'thing', 'H', thingOnly)).toBe(false);
   });
@@ -151,7 +147,7 @@ describe('enforceSuggestions', () => {
 });
 
 describe('suggestions for a valid answer that missed the bonus', () => {
-  /** A valid answer that did not match the bonus — the case this feature exists for. */
+
   function accepted(suggestion?: string, bonusMatched = false): CategoryJudgement {
     return { valid: true, bonusMatched, feedback: 'Nice.', suggestion };
   }
@@ -181,7 +177,7 @@ describe('suggestions for a valid answer that missed the bonus', () => {
   });
 
   it('drops one that would not have earned the bonus either', () => {
-    // Suggesting "Hannah" under a "must contain hh" rule teaches nothing.
+
     const settled = enforceSuggestions(
       verdictOf({ name: accepted('Harold') }),
       'H',
@@ -193,8 +189,7 @@ describe('suggestions for a valid answer that missed the bonus', () => {
   });
 
   it('holds a bonus suggestion to a "some" rule, unlike a mere correction', () => {
-    // A correction may fail a "some" rule — it might be one of the two answers
-    // that never had to match. A suggestion whose only job is the bonus may not.
+
     expect(suggestionStands('Harry', 'name', 'H', someOnly, true)).toBe(false);
     expect(suggestionStands('Hhoney', 'name', 'H', someOnly, true)).toBe(true);
   });
@@ -211,8 +206,7 @@ describe('suggestions for a valid answer that missed the bonus', () => {
   });
 
   it('says nothing to a category the bonus rule could never apply to', () => {
-    // "The Thing must contain hh" gives a Name no way to earn the bonus, so
-    // offering it one would be a lie about how the round is scored.
+
     const settled = enforceSuggestions(
       verdictOf({ name: accepted('Hhoney'), thing: accepted('Hhammer') }),
       'H',
@@ -236,8 +230,7 @@ describe('suggestions for a valid answer that missed the bonus', () => {
   });
 
   it('advises every applicable category independently', () => {
-    // The bonus is scored per category, so each one that missed it lost points
-    // of its own and deserves its own advice.
+
     const settled = enforceSuggestions(
       verdictOf({
         name: accepted('Hhoney'),
@@ -278,4 +271,3 @@ describe('bonusRuleApplies', () => {
     expect(bonusRuleApplies(undefined, 'name')).toBe(false);
   });
 });
-

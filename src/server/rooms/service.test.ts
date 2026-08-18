@@ -21,10 +21,6 @@ const colours: BonusChallenge = {
 
 const answers: UserAnswers = { name: 'Ruby', place: 'Rome', animal: 'Robin', thing: 'Rose' };
 
-/**
- * A judge that rules the bonus differently every time it is asked — which is
- * what the real one was observed doing on a rule it has to interpret.
- */
 function flipFloppingJudge(): Judge {
   let awardBonus = true;
 
@@ -44,7 +40,6 @@ function flipFloppingJudge(): Judge {
   };
 }
 
-/** Rules every answer of the round the same way, however many players wrote it. */
 function alwaysMatches(): { adjudicator: BonusAdjudicator; adjudicate: ReturnType<typeof vi.fn> } {
   const adjudicate = vi.fn(async (request: any) => {
     const decided = new Map<string, boolean>();
@@ -75,8 +70,6 @@ async function playRound(deps: { judge: Judge; bonusAdjudicator?: BonusAdjudicat
   const bob = { playerId: joined.youId, token: joined.youToken! };
   await rooms.start(created.code, ada);
 
-  // The same four answers from both players: any difference in their scores is
-  // the referee's doing, not theirs.
   await rooms.submit(created.code, ada, answers);
   clock += 1000;
   const view = await rooms.submit(created.code, bob, answers);
@@ -92,19 +85,15 @@ describe('scoreRound', () => {
     const results = await playRound({ judge: flipFloppingJudge(), bonusAdjudicator: adjudicator });
     const [first, second] = results.rows;
 
-    // The judge disagreed with itself between the two calls; the round-wide
-    // ruling is what both players are actually held to.
     expect(first.categories.thing.bonusMatched).toBe(true);
     expect(second.categories.thing.bonusMatched).toBe(true);
     expect(first.totalScore).toBe(second.totalScore);
-    // Settled once for the round, not once per player.
+
     expect(adjudicate).toHaveBeenCalledTimes(1);
   });
 
   it('leaves the players at the judge\'s mercy when there is no adjudicator', async () => {
-    // The degraded mode, kept honest: without a round-wide ruling, a judge that
-    // reads the rule differently per call is exactly the inconsistency the
-    // adjudicator exists to remove. Scoring still completes.
+
     const results = await playRound({ judge: flipFloppingJudge() });
 
     expect(results.rows).toHaveLength(2);

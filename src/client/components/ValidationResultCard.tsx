@@ -2,14 +2,12 @@ import React, { useState } from 'react';
 import { GameResult } from '../types';
 import { generateShareCard } from '../shareCard';
 import { isAiJudged } from '../judgedBy';
-import { Trophy, Share2, Copy, Check, Sparkles, RefreshCw, Flame, ArrowRight, User, MapPin, Dog, Package, Award, Lightbulb } from 'lucide-react';
+import { Trophy, Share2, Copy, Check, Sparkles, Flame, ArrowRight, User, MapPin, Dog, Package, Award, Lightbulb } from 'lucide-react';
 import { playClickSound, playSuccessSound } from '../audio';
 
 interface ValidationResultCardProps {
   result: GameResult;
-  onPlayAgain?: () => void;
   onViewStats: () => void;
-  mode: 'daily' | 'practice';
 }
 
 const CATEGORY_NAMES = {
@@ -21,9 +19,7 @@ const CATEGORY_NAMES = {
 
 export const ValidationResultCard: React.FC<ValidationResultCardProps> = ({
   result,
-  onPlayAgain,
   onViewStats,
-  mode,
 }) => {
   const [copied, setCopied] = useState(false);
 
@@ -47,7 +43,6 @@ export const ValidationResultCard: React.FC<ValidationResultCardProps> = ({
 
   return (
     <div id="validation-result-card" className="w-full bg-white border-2 border-slate-200 p-6 sm:p-10 shadow-sm space-y-8">
-      {/* Header Banner */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 pb-6 border-b-2 border-slate-200">
         <div className="flex items-center gap-6">
           <div className="w-20 h-20 bg-indigo-600 text-white flex items-center justify-center font-black text-4xl shadow-[6px_6px_0px_0px_rgba(79,70,229,0.2)] shrink-0">
@@ -56,7 +51,7 @@ export const ValidationResultCard: React.FC<ValidationResultCardProps> = ({
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-[10px] font-black uppercase tracking-widest text-indigo-600">
-                {mode === 'daily' ? `Challenge #${result.dayNumber}` : 'Practice Round'}
+                Challenge #{result.dayNumber}
               </span>
               <span className="text-[10px] font-bold px-2 py-0.5 bg-slate-100 border border-slate-200 text-slate-700 uppercase tracking-widest">
                 Letter '{result.letter}'
@@ -75,7 +70,6 @@ export const ValidationResultCard: React.FC<ValidationResultCardProps> = ({
           </div>
         </div>
 
-        {/* Streak Counter */}
         <div className="bg-slate-50 border-l-4 border-indigo-600 border-y border-r border-slate-200 px-5 py-3 flex items-center gap-3">
           <Flame className="w-6 h-6 text-indigo-600 fill-indigo-600" />
           <div>
@@ -85,7 +79,6 @@ export const ValidationResultCard: React.FC<ValidationResultCardProps> = ({
         </div>
       </div>
 
-      {/* Category Breakdown Cards */}
       <div>
         <h3 className="text-xs uppercase font-black tracking-widest text-slate-400 mb-4 flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-indigo-600" />
@@ -158,7 +151,6 @@ export const ValidationResultCard: React.FC<ValidationResultCardProps> = ({
         </div>
       </div>
 
-      {/* Speed Bonus & Summary Bar */}
       <div className="bg-slate-50 border-2 border-slate-200 p-4 flex flex-wrap items-center justify-between gap-4 text-xs font-extrabold uppercase tracking-widest text-slate-700">
         <div className="flex items-center gap-2">
           <Award className="w-4 h-4 text-indigo-600" />
@@ -169,7 +161,6 @@ export const ValidationResultCard: React.FC<ValidationResultCardProps> = ({
         </div>
       </div>
 
-      {/* Shareable Card Box */}
       <div className="bg-slate-900 text-slate-100 p-6 border-2 border-slate-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,0.1)]">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
           <span className="text-xs font-black uppercase tracking-widest text-indigo-400 flex items-center gap-2">
@@ -201,7 +192,6 @@ export const ValidationResultCard: React.FC<ValidationResultCardProps> = ({
         </pre>
       </div>
 
-      {/* Action Footer */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
         <button
           onClick={() => {
@@ -212,20 +202,6 @@ export const ValidationResultCard: React.FC<ValidationResultCardProps> = ({
         >
           View Streaks & Stats
         </button>
-
-        {mode === 'practice' && onPlayAgain && (
-          <button
-            id="play-next-practice-btn"
-            onClick={() => {
-              playClickSound();
-              onPlayAgain();
-            }}
-            className="w-full sm:w-auto px-8 py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-sm uppercase tracking-widest shadow-[4px_4px_0px_0px_rgba(79,70,229,0.3)] flex items-center justify-center gap-2 transition-all active:translate-y-0.5"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Play Another Practice Round
-          </button>
-        )}
       </div>
     </div>
   );

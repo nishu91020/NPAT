@@ -1,13 +1,5 @@
 import { CategoryKey, UserAnswers, ValidationResponse } from '../shared/contract';
 
-/**
- * Shapes that never leave the browser.
- *
- * The wire contract lives in `shared/contract.ts`. What is here is either
- * persisted in localStorage or is presentation copy, and the server has no
- * business knowing either.
- */
-
 export interface GameResult {
   dayNumber: number;
   dateString: string;
@@ -19,7 +11,8 @@ export interface GameResult {
   timeTaken: number;
   livesRemaining: number;
   completedAt: string;
-  mode: 'daily' | 'practice';
+
+  mode?: 'daily' | 'practice';
 }
 
 export interface GameStats {
@@ -29,10 +22,9 @@ export interface GameStats {
   totalScore: number;
   wins: number;
   lastPlayedDate: string | null;
-  history: Record<string, GameResult>; // key by YYYY-MM-DD or unique key
+  history: Record<string, GameResult>;
 }
 
-/** How one category is presented in the input form. */
 export interface CategoryInfo {
   key: CategoryKey;
   label: string;

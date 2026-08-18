@@ -19,7 +19,6 @@ export const StreakStatsModal: React.FC<StreakStatsModalProps> = ({ isOpen, onCl
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
       <div className="bg-white max-w-lg w-full p-6 sm:p-8 border-2 border-slate-200 shadow-[8px_8px_0px_0px_rgba(0,0,0,0.15)] relative">
-        {/* Close button */}
         <button
           onClick={() => {
             playClickSound();
@@ -40,7 +39,6 @@ export const StreakStatsModal: React.FC<StreakStatsModalProps> = ({ isOpen, onCl
           </div>
         </div>
 
-        {/* 4 Geometric Stat Cards Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
           <div className="bg-indigo-50 p-4 border-l-4 border-indigo-600 border-y border-r border-indigo-200 text-center">
             <Flame className="w-5 h-5 text-indigo-600 mx-auto mb-1 fill-indigo-600" />
@@ -67,7 +65,6 @@ export const StreakStatsModal: React.FC<StreakStatsModalProps> = ({ isOpen, onCl
           </div>
         </div>
 
-        {/* History Log */}
         <div>
           <h4 className="text-[10px] uppercase font-black tracking-widest text-slate-400 mb-3 flex items-center gap-2">
             <Calendar className="w-4 h-4 text-slate-400" />
@@ -91,7 +88,7 @@ export const StreakStatsModal: React.FC<StreakStatsModalProps> = ({ isOpen, onCl
                     </span>
                     <div>
                       <p className="font-extrabold text-slate-900 uppercase tracking-tight">
-                        {item.mode === 'daily' ? `Challenge #${item.dayNumber}` : 'Practice'}
+                        {item.mode === 'practice' ? 'Practice' : `Challenge #${item.dayNumber}`}
                       </p>
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{item.completedAt.split('T')[0]}</p>
                     </div>
@@ -107,7 +104,6 @@ export const StreakStatsModal: React.FC<StreakStatsModalProps> = ({ isOpen, onCl
           )}
         </div>
 
-        {/* Modal Action Footer */}
         <div className="mt-6 pt-4 border-t-2 border-slate-100 flex justify-end">
           <button
             onClick={() => {

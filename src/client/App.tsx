@@ -1,31 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { DailyPuzzle, UserAnswers, ValidationResponse, RoomView } from '../shared/contract';
+import React, { useState, useEffect } from 'react';
+import { DailyPuzzle, UserAnswers, ValidationResponse } from '../shared/contract';
 import { GameResult, GameStats } from './types';
-import { getDailyPuzzleData, getRandomPuzzleData } from '../shared/puzzle';
-import {
-  loadGameStats,
-  recordGameCompletion,
-  loadTodayDailyResult,
-  loadPlayerIdentity,
-  savePlayerIdentity,
-  loadRoomSeat,
-  saveRoomSeat,
-  clearRoomSeat,
-} from './storage';
-import {
-  ROOM_POLL_MS,
-  RoomRequestError,
-  createRoom,
-  fetchRoom,
-  joinRoom,
-  leaveRoom,
-  newRoomMatch,
-  nextRoomRound,
-  setRoomRounds,
-  startRoomRound,
-  submitRoomAnswers,
-  type PlayerSeat,
-} from './roomClient';
+import { getDailyPuzzleData } from '../shared/puzzle';
+import { loadGameStats, recordGameCompletion, loadTodayDailyResult } from './storage';
+import { useRoom } from './useRoom';
 import { playSuccessSound, playFailureSound, playClickSound, setMuted } from './audio';
 import { Header } from './components/Header';
 import { LandingScreen } from './components/LandingScreen';
@@ -36,13 +14,10 @@ import { ValidationResultCard } from './components/ValidationResultCard';
 import { StreakStatsModal } from './components/StreakStatsModal';
 import { HelpRulesModal } from './components/HelpRulesModal';
 import { SeoFaqSection } from './components/SeoFaqSection';
-import { Sparkles, Trophy, Flame, RefreshCw, Calendar, Share2, HelpCircle, AlertCircle, ArrowLeft } from 'lucide-react';
+import { AlertCircle, ArrowLeft } from 'lucide-react';
 
 export default function App() {
-  // The front door. 'landing' offers the three ways in; 'game' is a solo round;
-  // 'room' is a live race against other people.
   const [view, setView] = useState<'landing' | 'game' | 'room'>('landing');
-  const [mode, setMode] = useState<'daily' | 'practice'>('daily');
   const [puzzle, setPuzzle] = useState<DailyPuzzle>(getDailyPuzzleData());
   const [gameResult, setGameResult] = useState<GameResult | null>(null);
   const [stats, setStats] = useState<GameStats>(loadGameStats());
@@ -53,48 +28,14 @@ export default function App() {
   const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
 
-  // --- rooms ---------------------------------------------------------------
-  const [player, setPlayer] = useState(loadPlayerIdentity);
-  const [room, setRoom] = useState<RoomView | null>(null);
-  const [roomError, setRoomError] = useState<string | null>(null);
-  const [roomBusy, setRoomBusy] = useState<boolean>(false);
-  /** When `room` was received, so the countdown runs off the server's clock. */
-  const roomFetchedAt = useRef<number>(0);
-  /**
-   * Which seat this browser is on its way to, bumped every time it gives one up.
-   *
-   * ⚠️ Leaving a room does not cancel the requests already in flight for it — the
-   * poll in particular is fired every 1.5s and answers whenever the network gets
-   * round to it. Applying those replies unconditionally put the player back into
-   * the room they had just left: create a room, leave without playing, create
-   * another, and the in-flight poll for the first one landed a moment later and
-   * replaced it. The second room was made — the player just never got to see it,
-   * which reads as "I cannot create another room".
-   */
-  const roomEpoch = useRef<number>(0);
-  /**
-   * The token proving this browser owns its seat, issued by the server when the
-   * seat was taken and required by every request that acts on the room.
-   *
-   * Kept in a ref rather than state because every room call reads it and none of
-   * them should re-run when it changes; mirrored into `localStorage` so a refresh
-   * can reclaim the seat instead of being refused as an impostor.
-   */
-  const seatToken = useRef<string>('');
-  // An invite link (/?room=CODE) prefills the join form.
-  const [inviteCode] = useState<string>(() => {
-    if (typeof window === 'undefined') return '';
-    return (new URLSearchParams(window.location.search).get('room') ?? '').toUpperCase();
-  });
+  const rooms = useRoom({ onExited: () => setView('landing') });
 
   const todayStr = new Date().toISOString().split('T')[0];
 
-  // The audio module owns the gate, so a new call site cannot forget it.
   useEffect(() => {
     setMuted(!soundEnabled);
   }, [soundEnabled]);
 
-  // Load Daily puzzle & initial completed state
   useEffect(() => {
     fetchDailyPuzzle();
   }, []);
@@ -112,231 +53,38 @@ export default function App() {
       setPuzzle(getDailyPuzzleData(todayStr));
     }
 
-    // Check if user already played today's official daily puzzle
     const savedResult = loadTodayDailyResult(todayStr);
     if (savedResult) {
       setGameResult(savedResult);
     }
   };
 
-  const fetchPracticePuzzle = async (excludeLetter?: string) => {
-    try {
-      const res = await fetch(`/api/practice-challenge?exclude=${excludeLetter || ''}`);
-      if (res.ok) {
-        const data = await res.json();
-        setPuzzle(data);
-      } else {
-        setPuzzle(getRandomPuzzleData(excludeLetter));
-      }
-    } catch (e) {
-      setPuzzle(getRandomPuzzleData(excludeLetter));
-    }
-  };
-
-  const handleSelectMode = (newMode: 'daily' | 'practice') => {
-    setMode(newMode);
-    setSubmitError(null);
-    // Choosing a mode from the header is also a request to start playing it.
-    setView('game');
-    if (newMode === 'daily') {
-      fetchDailyPuzzle();
-    } else {
-      setGameResult(null);
-      fetchPracticePuzzle();
-    }
-  };
-
   const handleGoHome = () => {
     setSubmitError(null);
-    // Going home is leaving: a seat this browser is no longer looking at would
-    // otherwise be held until the server notices it has gone quiet.
-    releaseRoom();
+    rooms.release();
     setView('landing');
   };
 
   const handleDailyChallenge = () => {
     setSubmitError(null);
-    setMode('daily');
     setView('game');
     fetchDailyPuzzle();
   };
 
-  // Rooms: create, join, poll, play, leave.
-  const applyRoom = (next: RoomView) => {
-    roomFetchedAt.current = Date.now();
-    // Only create and join carry a token, and only to the caller they issued it
-    // to. Every other reply leaves the one already held alone.
-    if (next.youToken) {
-      seatToken.current = next.youToken;
-      saveRoomSeat({ code: next.code, token: next.youToken });
-    }
-    setRoom(next);
-    setRoomError(null);
-  };
-
-  /** This browser's claim to its seat, as every room request has to present it. */
-  const seat = (): PlayerSeat => ({ playerId: player.id, token: seatToken.current });
-
-  /**
-   * Gives up the seat this browser holds, if it holds one.
-   *
-   * Bumping the epoch first is what makes it a clean break: every request still
-   * in flight for that room is now stale, and its reply is dropped rather than
-   * applied over whatever the player does next.
-   */
-  const releaseRoom = () => {
-    roomEpoch.current += 1;
-    if (room) leaveRoom(room.code, seat());
-    seatToken.current = '';
-    clearRoomSeat();
-    setRoom(null);
-  };
-
-  const describeRoomError = (err: unknown): string =>
-    err instanceof RoomRequestError ? err.message : 'Something went wrong. Try again.';
-
-  /**
-   * One room request, start to finish — and ignored entirely if the player has
-   * left that room by the time it answers. Returns the room, or null if the
-   * request failed or was abandoned.
-   */
-  const runRoom = async (
-    work: () => Promise<RoomView>,
-    { silent = false }: { silent?: boolean } = {}
-  ): Promise<RoomView | null> => {
-    const epoch = roomEpoch.current;
-    setRoomBusy(true);
-    try {
-      const next = await work();
-      if (epoch !== roomEpoch.current) return null;
-      applyRoom(next);
-      return next;
-    } catch (err) {
-      if (epoch !== roomEpoch.current) return null;
-      if (!silent) setRoomError(describeRoomError(err));
-      return null;
-    } finally {
-      setRoomBusy(false);
-    }
-  };
-
-  const rememberName = (name: string) => {
-    const identity = { ...player, name };
-    setPlayer(identity);
-    savePlayerIdentity(identity);
-    return identity;
-  };
-
   const handleCreateRoom = async (name: string) => {
-    const identity = rememberName(name);
-    // One room at a time: whatever seat this browser still holds is given up
-    // before a new one is taken, so an abandoned room cannot follow the player
-    // into the one they are creating.
-    releaseRoom();
-    setRoomError(null);
-
-    if (await runRoom(() => createRoom(identity.id, name))) setView('room');
+    if (await rooms.create(name)) setView('room');
   };
 
   const handleJoinRoom = async (name: string, code: string) => {
-    // ⚠️ Read before giving up the current seat: `releaseRoom` clears the stored
-    // one, and a refresh mid-room is exactly a join with the token that proves
-    // the seat is already yours. Reading it afterwards always found nothing, and
-    // the server rightly refused the seat to a player who could not prove it.
-    const held = loadRoomSeat(code);
-    const identity = rememberName(name);
-    releaseRoom();
-    setRoomError(null);
-
-    if (await runRoom(() => joinRoom(code, identity.id, name, held))) setView('room');
+    if (await rooms.join(name, code)) setView('room');
   };
-
-  const handleStartRoomRound = async () => {
-    if (!room) return;
-    await runRoom(() => startRoomRound(room.code, seat()));
-  };
-
-  const handleRoomSubmit = async (answers: UserAnswers, auto = false) => {
-    if (!room) return;
-    // An auto-submit races the server ending the round; losing that race is
-    // normal and the server has already taken the player's answers as blank.
-    // Telling them off for it would only be noise.
-    await runRoom(() => submitRoomAnswers(room.code, seat(), answers), { silent: auto });
-  };
-
-  const handleSetRoomRounds = async (totalRounds: number) => {
-    if (!room) return;
-    await runRoom(() => setRoomRounds(room.code, seat(), totalRounds));
-  };
-
-  const handleNewRoomMatch = async () => {
-    if (!room) return;
-    await runRoom(() => newRoomMatch(room.code, seat()));
-  };
-
-  const handleNextRoomRound = async () => {
-    if (!room) return;
-    await runRoom(() => nextRoomRound(room.code, seat()));
-  };
-
-  const handleLeaveRoom = () => {
-    releaseRoom();
-    setRoomError(null);
-    setView('landing');
-    // Drop the invite parameter so a refresh does not rejoin what you just left.
-    if (typeof window !== 'undefined' && window.location.search.includes('room=')) {
-      window.history.replaceState({}, '', window.location.pathname);
-    }
-  };
-
-  /**
-   * Polling, not sockets: the room in the store is already the source of truth,
-   * so this survives the app running on several replicas without a backplane.
-   * It doubles as the presence heartbeat — a player who stops polling is dropped.
-   */
-  useEffect(() => {
-    if (view !== 'room' || !room) return;
-    const code = room.code;
-    const epoch = roomEpoch.current;
-
-    const id = window.setInterval(async () => {
-      try {
-        // Read per poll, never captured: the token arrives with the reply that
-        // created or joined the room, which may land after this was armed.
-        const next = await fetchRoom(code, { playerId: player.id, token: seatToken.current });
-        if (epoch !== roomEpoch.current) return;
-        roomFetchedAt.current = Date.now();
-        setRoom(next);
-      } catch (err) {
-        if (epoch !== roomEpoch.current) return;
-        // A room that has closed under us is worth surfacing; a blip is not. So
-        // is a seat we no longer hold — polling on would never recover it.
-        if (err instanceof RoomRequestError && (err.status === 404 || err.status === 403)) {
-          setRoomError(err.status === 403 ? 'You are no longer in that room.' : 'That room has closed.');
-          seatToken.current = '';
-          clearRoomSeat();
-          setRoom(null);
-          setView('landing');
-        }
-      }
-    }, ROOM_POLL_MS);
-
-    return () => window.clearInterval(id);
-  }, [view, room?.code, player.id]);
 
   const hasPlayedTodayOfficial = !!loadTodayDailyResult(todayStr);
-  const handleNewPracticeRound = () => {
-    setGameResult(null);
-    setSubmitError(null);
-    fetchPracticePuzzle(puzzle.letter);
-  };
 
   const handleSubmitAnswers = async (answers: UserAnswers, timeTaken: number, remainingLives: number) => {
     setIsSubmitting(true);
     setSubmitError(null);
 
-    // Scoring is server-only. If it cannot be reached the round is not recorded,
-    // rather than being silently scored by a weaker local judge.
     let validationRes: ValidationResponse;
     try {
       const response = await fetch('/api/validate', {
@@ -366,7 +114,6 @@ export default function App() {
 
     setIsSubmitting(false);
 
-    // Play victory or try again audio feedback
     if (validationRes.totalScore >= 20) {
       playSuccessSound();
     } else {
@@ -375,15 +122,13 @@ export default function App() {
 
     const currentStats = loadGameStats();
     let newStreak = currentStats.currentStreak;
-    if (mode === 'daily') {
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr = yesterday.toISOString().split('T')[0];
-      if (currentStats.lastPlayedDate === yesterdayStr || currentStats.lastPlayedDate === null) {
-        newStreak += 1;
-      } else if (currentStats.lastPlayedDate !== todayStr) {
-        newStreak = 1;
-      }
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    if (currentStats.lastPlayedDate === yesterdayStr || currentStats.lastPlayedDate === null) {
+      newStreak += 1;
+    } else if (currentStats.lastPlayedDate !== todayStr) {
+      newStreak = 1;
     }
 
     const resultObj: GameResult = {
@@ -397,7 +142,6 @@ export default function App() {
       timeTaken,
       livesRemaining: remainingLives,
       completedAt: new Date().toISOString(),
-      mode,
     };
 
     setGameResult(resultObj);
@@ -407,12 +151,8 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 flex flex-col selection:bg-indigo-600 selection:text-white">
-      {/* Top Navigation Header */}
       <Header
         streak={stats.currentStreak}
-        mode={mode}
-        showModeSelector={view === 'game'}
-        onSelectMode={handleSelectMode}
         onGoHome={handleGoHome}
         onOpenStats={() => setIsStatsOpen(true)}
         onOpenHelp={() => setIsHelpOpen(true)}
@@ -420,39 +160,36 @@ export default function App() {
         onToggleSound={() => setSoundEnabled(!soundEnabled)}
       />
 
-      {/* Main Container */}
       <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-8 py-6 sm:py-8 space-y-8">
         {view === 'landing' ? (
           <LandingScreen
             streak={stats.currentStreak}
             dayNumber={puzzle.dayNumber}
             hasPlayedToday={hasPlayedTodayOfficial}
-            playerName={player.name}
-            initialCode={inviteCode}
-            isBusy={roomBusy}
-            error={roomError}
+            playerName={rooms.playerName}
+            initialCode={rooms.inviteCode}
+            isBusy={rooms.isBusy}
+            error={rooms.error}
             onDailyChallenge={handleDailyChallenge}
             onCreateRoom={handleCreateRoom}
             onJoinRoom={handleJoinRoom}
-            onDismissError={() => setRoomError(null)}
+            onDismissError={rooms.dismissError}
           />
-        ) : view === 'room' && room ? (
+        ) : view === 'room' && rooms.room ? (
           <RoomScreen
-            room={room}
-            fetchedAtMs={roomFetchedAt.current}
-            error={roomError}
-            isBusy={roomBusy}
-            onStartRound={handleStartRoomRound}
-            onSubmit={handleRoomSubmit}
-            onNextRound={handleNextRoomRound}
-            onSetRounds={handleSetRoomRounds}
-            onNewMatch={handleNewRoomMatch}
-            onLeave={handleLeaveRoom}
+            room={rooms.room}
+            fetchedAtMs={rooms.fetchedAtMs}
+            error={rooms.error}
+            isBusy={rooms.isBusy}
+            onStartRound={rooms.startRound}
+            onSubmit={rooms.submitAnswers}
+            onNextRound={rooms.nextRound}
+            onSetRounds={rooms.setRounds}
+            onNewMatch={rooms.newMatch}
+            onLeave={rooms.leave}
           />
         ) : (
           <>
-            {/* The way out of a round. The header logo goes home too, but that is
-                not discoverable enough to be the only exit. */}
             <button
               id="back-to-menu-btn"
               onClick={() => {
@@ -465,21 +202,12 @@ export default function App() {
               <span>Back to menu</span>
             </button>
 
-            {/* Letter & Bonus Challenge Banner */}
-            <LetterBanner
-              puzzle={puzzle}
-              mode={mode}
-              onNewPracticeRound={handleNewPracticeRound}
-              hasPlayedToday={hasPlayedTodayOfficial}
-            />
+            <LetterBanner puzzle={puzzle} hasPlayedToday={hasPlayedTodayOfficial} />
 
-            {/* Dynamic State Section */}
             {gameResult ? (
               <ValidationResultCard
                 result={gameResult}
-                onPlayAgain={mode === 'practice' ? handleNewPracticeRound : undefined}
                 onViewStats={() => setIsStatsOpen(true)}
-                mode={mode}
               />
             ) : (
               <>
@@ -502,12 +230,9 @@ export default function App() {
             )}
           </>
         )}
-
-        {/* SEO & Game Guide Section */}
         <SeoFaqSection />
       </main>
 
-      {/* System Footer Bar - Geometric Balance Aesthetic */}
       <footer className="bg-slate-900 text-slate-400 px-6 sm:px-10 py-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-[10px] font-black tracking-widest uppercase border-t-2 border-slate-900">
         <div className="flex items-center gap-6">
           <span>LEXICON v1.0.4</span>
@@ -536,7 +261,6 @@ export default function App() {
         </div>
       </footer>
 
-      {/* Modals */}
       <StreakStatsModal
         isOpen={isStatsOpen}
         onClose={() => setIsStatsOpen(false)}
@@ -550,4 +274,3 @@ export default function App() {
     </div>
   );
 }
-

@@ -39,7 +39,7 @@ describe('satisfiesCheck', () => {
 
   it('decides adjacent vowels the same way every time', () => {
     const rule = { scope: 'all', checkKind: 'adjacentVowels', checkValue: '' } as const;
-    // The exact words the model disagreed with itself about across identical runs.
+
     expect(satisfiesCheck(rule, 'Sean')).toBe(true);
     expect(satisfiesCheck(rule, 'Seattle')).toBe(true);
     expect(satisfiesCheck(rule, 'Snail')).toBe(true);
@@ -92,9 +92,7 @@ describe('satisfiesCheck', () => {
   });
 
   describe('an ending written as prose is still read as the rule it states', () => {
-    // Observed live: "every answer must end in a vowel" reached the referee as
-    // an endsWith rule, and no word ends with the string "a, e, i, o, u", so
-    // "Vase" scored nothing under a rule it plainly satisfied.
+
     it.each(['a vowel', 'vowel', 'a, e, i, o, u', 'a/e/i/o/u', 'a or e or i or o or u'])(
       'credits "Vase" for an endsWith value of %j',
       (checkValue) => {
@@ -142,8 +140,7 @@ describe('bonusMetFor', () => {
   });
 
   it('requires only the named category when the rule names one', () => {
-    // The bug: "the Thing must be edible" was counted against a threshold of
-    // two, so it could never be met however good the answer was.
+
     expect(bonusMetFor('thing', ['thing'])).toBe(true);
     expect(bonusMetFor('name', ['name'])).toBe(true);
     expect(bonusMetFor('thing', ['name', 'place'])).toBe(false);
@@ -165,7 +162,6 @@ describe('enforceBonusRule', () => {
       challenge({ scope: 'all', checkKind: 'adjacentVowels', checkValue: '' })
     );
 
-    // All four have two vowels together, whatever the judge claimed.
     expect(after.categories.animal.bonusMatched).toBe(true);
     expect(after.categories.thing.bonusMatched).toBe(true);
     expect(after.bonusChallengeMet).toBe(true);
@@ -245,12 +241,6 @@ describe('enforceBonusRule', () => {
   });
 });
 
-/**
- * A rule that names one category says nothing about the other three, so a
- * mechanical check must not be applied to them. Reachable in production: four
- * of the generator rule families constrain a single category, and nothing stops
- * one being paired with a mechanical check.
- */
 describe('enforceBonusRule and scope', () => {
   it('does not award a single-category rule to the categories it never mentions', () => {
     const after = enforceBonusRule(
@@ -310,7 +300,7 @@ describe('unwinnable rules are handed back rather than enforced', () => {
 
 describe('endingsOf', () => {
   it('reads a prose list of vowels as the alternatives it names', () => {
-    // "must end in a vowel" arrived as this, and no word ends with the string.
+
     expect(endingsOf('a, e, i, o, u')).toEqual(['a', 'e', 'i', 'o', 'u']);
   });
 
@@ -320,14 +310,12 @@ describe('endingsOf', () => {
   });
 
   it('keeps "or" as an ending rather than splitting on it', () => {
-    // Splitting on the word "or" unconditionally turned the ordinary ending
-    // "-or" into an empty list, which downgraded the rule to a judged one.
+
     expect(endingsOf('or')).toEqual(['or']);
   });
 
   it('keeps "or" inside a list of endings', () => {
-    // Worse than the above: this silently dropped an alternative, so words
-    // ending "-or" were failed under a rule that plainly allowed them.
+
     expect(endingsOf('or, er')).toEqual(['or', 'er']);
   });
 

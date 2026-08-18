@@ -55,7 +55,7 @@ describe('buildAdjudicationSchema', () => {
     };
     walk(schema);
 
-    expect(objects.length).toBe(2); // root + one ruling
+    expect(objects.length).toBe(2);
     for (const obj of objects) expect(obj.additionalProperties).toBe(false);
   });
 
@@ -100,7 +100,7 @@ describe('buildAdjudicationPrompt', () => {
     expect(prompt).toContain('thing: "Rose"');
     expect(prompt).toContain('thing: "Rug"');
     expect(prompt).toContain('name: "Ruby"');
-    // Both players wrote Rome, and one question is what makes one answer.
+
     expect(prompt.match(/place: "Rome"/g)).toHaveLength(1);
   });
 
@@ -111,11 +111,6 @@ describe('buildAdjudicationPrompt', () => {
     expect(prompt).toContain('Target letter: "R"');
   });
 
-  /**
-   * ⚠️ This is the one prompt carrying several players' words in a single call
-   * whose ruling binds all of them, so a word shaped like an instruction is an
-   * attack on somebody else's score rather than only on its own.
-   */
   it('quotes an answer as a JSON string, so it cannot read as an instruction', () => {
     const hostile = {
       ...request,
@@ -147,7 +142,6 @@ describe('toRuling', () => {
       entries
     );
 
-    // Ruby was a name this round, not a thing: a bonus for it would be invented.
     expect(ruling.matched('thing', 'Ruby')).toBe(null);
   });
 

@@ -39,7 +39,6 @@ function message(content: string | null, extra: Record<string, unknown> = {}) {
   return { choices: [{ message: { content }, finish_reason: 'stop', ...extra }] };
 }
 
-/** The documented content-filter rejection shape. */
 function contentFilterError() {
   return Object.assign(new Error('The response was filtered'), {
     status: 400,
@@ -136,8 +135,7 @@ describe('the failure taxonomy', () => {
   });
 
   it('names a truncation, rather than letting it surface as a JSON syntax error', async () => {
-    // This is what the bonus source used to do: partial JSON straight into
-    // JSON.parse, producing a cryptic SyntaxError with no context.
+
     const { completer } = completerReturning({
       choices: [{ message: { content: '{"title":"Stel' }, finish_reason: 'length' }],
     });
@@ -165,8 +163,7 @@ describe('the failure taxonomy', () => {
   });
 
   it('keeps the parse error as the cause, because it quotes the offending payload', async () => {
-    // Distinguishes "the model wrote prose" from "a gateway returned an HTML
-    // error body" — the only failure where the payload is the diagnosis.
+
     const { completer } = completerReturning(message('<html><body>502</body></html>'));
 
     await expect(completer.complete(request)).rejects.toMatchObject({

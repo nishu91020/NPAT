@@ -24,7 +24,6 @@ const request = {
   bonusChallenge: bonus,
 };
 
-/** The documented shape of a content-filter rejection. */
 function contentFilterError() {
   return Object.assign(new Error('The response was filtered'), {
     status: 400,
@@ -146,10 +145,7 @@ describe('unscoreableCategories', () => {
 });
 
 describe('createAzureJudge with a filtered answer', () => {
-  /**
-   * Fails whenever the prompt contains a banned word, mimicking an input filter
-   * that rejects the whole prompt without saying which answer caused it.
-   */
+
   function filteringClient(banned: string) {
     const create = vi.fn(async (args: any) => {
       const prompt = args.messages.map((m: any) => m.content).join('\n');
@@ -201,7 +197,7 @@ describe('createAzureJudge with a filtered answer', () => {
       (p) => p.includes('Sarah') && p.includes('Spain') && p.includes('Shark') && p.includes('Slur')
     );
 
-    expect(full).toHaveLength(1); // only the initial attempt
+    expect(full).toHaveLength(1);
   });
 
   it('does not probe answers the player left empty', async () => {
@@ -213,13 +209,11 @@ describe('createAzureJudge with a filtered answer', () => {
 
     await createAzureJudge(client, 'npat-judge').judge(sparse);
 
-    // initial + probe(name) + probe(thing) + final
     expect(create).toHaveBeenCalledTimes(4);
   });
 
   it('marks every answer unscoreable when the rejection is not the answers', async () => {
-    // Fails on the bonus text, which is present in every prompt including probes
-    // and the final blanked call — so nothing can be scored.
+
     const { client } = filteringClient('Super Size Words');
 
     const verdict = await createAzureJudge(client, 'npat-judge').judge(request);
@@ -244,7 +238,6 @@ describe('createAzureJudge with a filtered answer', () => {
 
     const verdict = await createAzureJudge(client, 'npat-judge').judge(request);
 
-    // Probes all succeed, so nothing is attributable and the round is unscoreable.
     expect(verdict.categories.name).toEqual(UNSCOREABLE);
   });
 

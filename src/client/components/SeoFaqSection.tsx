@@ -22,8 +22,8 @@ export const SeoFaqSection: React.FC = () => {
       a: 'Each valid answer earns base points. Bonus twists add +5 extra points per category. Submitting quickly earns up to +20 Speed Bonus points. Completing the daily official puzzle increases your consecutive Daily Streak.',
     },
     {
-      q: 'Can I play unlimited practice rounds?',
-      a: 'Yes! Toggle to "Practice Mode" in the header navigation at any time to play unlimited randomized rounds with different letters and bonus rules to sharpen your vocabulary.',
+      q: 'Can I play more than one round a day?',
+      a: 'The official puzzle is one letter a day, played once — that is what the streak is built on. To keep playing, start a multiplayer room and race friends: each room round draws its own letter and bonus rule, and room results never affect your daily streak.',
     },
     {
       q: 'Is Letters Daily mobile-friendly?',
@@ -47,14 +47,12 @@ export const SeoFaqSection: React.FC = () => {
         </div>
       </div>
 
-      {/* SEO Intro Content */}
       <div className="text-xs font-medium text-slate-600 space-y-3 leading-relaxed">
         <p>
           Welcome to <strong className="text-slate-900 font-extrabold">Letters Daily</strong>, the definitive digital edition of the classic <strong className="text-slate-900 font-extrabold">Name, Place, Animal, Thing</strong> word puzzle. Designed for word enthusiasts, trivia fans, and fast-thinkers of all ages, Letters Daily combines rapid vocabulary challenges with AI-powered validation, daily streak rewards, and competitive bonus twists.
         </p>
       </div>
 
-      {/* FAQ Accordion */}
       <div className="space-y-3 pt-2">
         <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5 mb-3">
           <HelpCircle className="w-4 h-4 text-indigo-600" />
@@ -91,7 +89,6 @@ export const SeoFaqSection: React.FC = () => {
         })}
       </div>
 
-      {/* Mobile Tips Box */}
       <div className="p-4 bg-indigo-50 border-l-4 border-indigo-600 border-y border-r border-indigo-100 flex items-start gap-3">
         <Sparkles className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
         <div className="text-xs">

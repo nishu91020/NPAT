@@ -4,6 +4,11 @@ Daily "Name, Place, Animal, Thing" word puzzle. React 19 + Vite 6 + Tailwind v4 
 Express server that also proxies answer judging to a model on Microsoft Foundry, with a local
 heuristic judge as the fallback.
 
+⚠️ **The source carries no comments.** They were removed deliberately, so this file and
+`docs/ARCHITECTURE.md` are now the *only* record of why the code is shaped the way it is — and most of
+it is shaped by bugs that actually happened. Read both before changing anything load-bearing, and put
+new reasoning here rather than in a comment that will be stripped again.
+
 ## Commands
 
 ```bash
@@ -167,7 +172,7 @@ writes near-identical rules within a family, so the family count — not the num
 real ceiling on variety, and a broad family like "a shared theme" always came back as "at least 2
 answers must relate to X". How a family is chosen is injected per caller: `ruleFamilyForDate` rotates
 deterministically by date with a stride coprime to the list length, so consecutive days never repeat
-and every family is used before any recurs, while practice uses `createRecentAvoidingPicker`. The
+and every family is used before any recurs, while rooms use `createRecentAvoidingPicker`. The
 prompt additionally forbids alliterating the title on the target letter — twelve live generations for
 S gave "Stretchy S Words", "Space Seekers", "Sporty Squad" and read like one challenge.
 
@@ -196,7 +201,7 @@ the letter list, or the epoch retroactively rewrites every past puzzle — treat
 entries.** The daily derivation indexes that prefix, never the whole array — it was
 `% BONUS_CHALLENGES.length`, which meant appending a single challenge silently rewrote which one every
 past date resolved to. Add challenges by **appending** below the marker in `puzzle.ts`; the extras are
-drawn by practice mode and the random fallback, neither of which has to agree with history. Reordering
+drawn by room rounds and the random fallback, neither of which has to agree with history. Reordering
 or removing anything in the prefix still rewrites the past. `puzzle.test.ts` pins the prefix, its order,
 and golden letter/challenge/`dayNumber` values for known dates.
 
@@ -206,7 +211,7 @@ the `DailyChallengeStore` seam (`src/server/bonus/store.ts`) is the source of tr
 **The in-process map alone is only correct for a single replica** — without the store, each replica
 generates and serves its own daily challenge, which is a bug this project has already had once. A
 replica publishes with `putIfAbsent`, so the first writer wins and the rest adopt that value rather
-than overwriting it. Practice mode is intentionally random per request.
+than overwriting it. Room rounds are intentionally random per request.
 
 Adapters: `createBlobStore` (production and Azurite), `createMemoryStore` (tests), `nullStore`
 (unconfigured, degrades to per-process caching). Set `DAILY_CHALLENGE_STORAGE` to enable it —
@@ -230,10 +235,24 @@ its telemetry vanishes silently. It also calls `dotenv.config()` itself, because
 connection string it cannot parse, and unguarded that would crash the server before it listens — a
 typo in one env var taking the whole game down.
 
-**State and persistence.** No router and no state library. All game state lives in `App.tsx` and is passed
-down as props; `src/client/components/` holds presentational components only. Persistence is `localStorage` via
-`src/client/storage.ts` under versioned keys `npat_game_stats_v1` / `npat_today_result_v1` — bump the `_v1`
-suffix when the stored shape changes, since loaders only shallow-merge over `DEFAULT_STATS`.
+**State and persistence.** No router and no state library. `App.tsx` owns the daily game and the
+current view and passes both down as props; `src/client/components/` holds presentational components
+only. **Room state is not in `App.tsx`** — `src/client/useRoom.ts` owns the seat token, the player
+identity, the staleness epoch, the polling loop and every room action, and returns one
+`RoomController`; `App` only decides which view is on screen, which the hook asks for via `onExited`.
+The room snapshot and the timestamp it arrived at are one piece of state on purpose: a countdown
+measured against a timestamp from a different poll than the room it belongs to is wrong. Persistence
+is `localStorage` via `src/client/storage.ts` under versioned keys `npat_game_stats_v1` /
+`npat_today_result_v1` / `npat_player_v1` / `npat_room_seat_v1` — bump the `_v1` suffix when the
+stored shape changes, since loaders only shallow-merge over `DEFAULT_STATS`.
+
+⚠️ **There is one game mode: the daily puzzle.** Practice mode was removed — there is no
+`/api/practice-challenge`, no mode toggle, and nothing in the client draws a random solo round.
+`getRandomPuzzleData` and the random bonus source (`randomBonus` in `src/server/main.ts`) survive
+because **rooms** use them for each round's letter and challenge. Saved rounds still carry
+`GameResult.mode`, which is why it is optional and read-only: rounds stored while practice existed
+say `'practice'` and have a *random* `dayNumber`, so history reads the field to label them honestly
+rather than showing a daily challenge they never were. Nothing writes it.
 
 **Audio is synthesized, not loaded.** `src/client/audio.ts` generates every sound with the Web Audio API
 through a lazily-created shared `AudioContext`. There are no audio assets. Every function no-ops when the
@@ -322,7 +341,7 @@ every button click still beeped. Never reintroduce a `soundEnabled` check around
 - **The `@` alias** maps to the repo root in both `tsconfig.json` and `vite.config.ts`, but nothing uses it;
   existing code imports relatively (`../utils/audio`).
 - **Do not change the HMR block in `vite.config.ts`.** It is driven by the `DISABLE_HMR` env var so AI Studio
-  can disable file watching during agent edits, and it carries an explicit "do not modify" comment.
+  can disable file watching during agent edits.
 - **SEO content is hand-maintained in two places**: the JSON-LD `WebApplication` + `FAQPage` blocks in
   `index.html` and the visible copy in `SeoFaqSection.tsx`. Both still hardcode scoring prose that has
   drifted from `SCORING` — the FAQ advertises "+5 to +10". Rendering these from `SCORING` is an open
