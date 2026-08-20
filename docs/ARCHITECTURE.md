@@ -176,17 +176,17 @@ generates and serves its own daily challenge. This project has had that bug once
 
 ### Playing a round
 
-All daily-game state lives in `App.tsx` (no router, no state library) and is passed down as props.
-`CategoryInputForm` runs a 60-second clock and three lives; running out of time costs a life and
-resets the clock to 15 seconds.
+All daily-game state lives in `useDailyGame.ts` (no router, no state library) and is passed down as
+props by `App.tsx`. `CategoryInputForm` runs a 60-second clock and three lives; running out of time
+costs a life and resets the clock to 15 seconds.
 
 > ⚠️ Elapsed time is measured from a round-start timestamp, never derived as
 > `timeLimitSeconds - timeLeft` — that formula reported 45 seconds for a round that had already run
 > past a minute, because losing a life resets the clock.
 
 **Scoring failure is not silently faked.** The client has no local validator. If `/api/validate`
-fails, `App.tsx` shows an error and does **not** record the round, so streak stats cannot be corrupted
-by a guess. The puzzle *fetch* does fall back to `getDailyPuzzleData`, so the letter still renders
+fails, `useDailyGame` exposes an error (rendered by `DailyGameScreen`) and does **not** record the
+round, so streak stats cannot be corrupted by a guess. The puzzle *fetch* does fall back to `getDailyPuzzleData`, so the letter still renders
 offline.
 
 ---
@@ -488,7 +488,7 @@ unconstrained random draw:
 
 Bump the `_v1` suffix when a stored shape changes: loaders only shallow-merge over `DEFAULT_STATS`.
 
-> ⚠️ **Streak math exists twice** — `App.tsx#handleSubmitAnswers` computes a streak for the result
+> ⚠️ **Streak math exists twice** — `useDailyGame.ts#nextStreak` computes a streak for the result
 > object, and `storage.ts#recordGameCompletion` independently recomputes the persisted value. Update
 > both.
 
@@ -511,15 +511,33 @@ with Entra ID, or a connection string for Azurite locally. `blobStore.get` treat
 
 ## 9. Client structure
 
-No router, no state library. `App.tsx` owns the daily game and the current view and passes both down
-as props; `src/client/components/` holds presentational components only, each with a local `...Props`
-interface and a named export (`App.tsx` is the only default export).
+No router, no state library. **`App.tsx` owns only the current view and the app chrome** — the
+header, the footer, the two modals and the sound toggle — and picks one of three screens:
+`LandingScreen`, `RoomScreen`, `DailyGameScreen`. `src/client/components/` holds presentational
+components only, each with a local `...Props` interface and a named export (`App.tsx` is the only
+default export).
+
+**Each mode owns its own state in a hook, and `App` composes them.** `useDailyGame.ts` owns the
+puzzle, today's result, the submit call and its error; `useGameStats.ts` owns the persisted stats and
+is the only thing that calls `recordGameCompletion`, which `useDailyGame` reaches through an injected
+`onCompleted`; `useRoom.ts` owns everything about holding a seat. The three do not know about each
+other, and none of them decides which screen is on — that stays in `App`, which they ask for through
+injected callbacks (`onStarted` for the daily round, `onEntered`/`onExited` for rooms). **A
+transition belongs to the hook that causes it**: starting the daily round is "clear the error, fetch
+today's puzzle, show the game", and joining a room is "take a seat, show the room", so each hook runs
+the whole sequence rather than returning a flag `App` has to remember to act on. Mixing all three in
+`App.tsx` is what this split undid: the daily fetch, the validate call, the streak math and the room
+actions were interleaved in one component, so a change to one mode meant reading all of it. What is
+left in `App` is only what is genuinely cross-cutting — `handleGoHome`, which resets both modes.
 
 **Being in a room is its own module.** `useRoom.ts` owns the seat token, the player identity, the
 staleness epoch, the polling loop and every room action, and hands `App` a single `RoomController`.
 None of that is the daily game: it is only meaningful while a seat is held, and interleaving it with
 the puzzle made both harder to follow. `App` keeps only the decision a hook should not make — which
-view is on screen — which the hook asks for through one `onExited` callback.
+view is on screen — which the hook asks for through its `onEntered` / `onExited` callbacks. Both
+directions belong to the hook: a successful `create`/`join` *is* entering a room, so `create` and
+`join` return `Promise<void>` and fire `onEntered` themselves rather than handing a caller a boolean
+it has to remember to act on.
 
 The room snapshot and the timestamp it arrived at are **one piece of state**, deliberately: a
 countdown measured against a timestamp from a different poll than the room it belongs to is wrong,
@@ -535,10 +553,40 @@ context is unavailable, because browsers block audio before user interaction.
 > `playClickSound()` sites did not, so the mute button silenced the timer tick and the win jingle while
 > every button click still beeped.
 
-**Styling** is Tailwind v4, CSS-first: one `@import "tailwindcss";` and no `tailwind.config.js`. The
-design language is deliberately flat and geometric — square corners, `border-2`/`border-l-4` accents,
-hard offset shadows, `text-[10px] font-black uppercase tracking-widest` micro-labels, `min-h-[48px]`
-touch targets, and a slate/indigo/rose/emerald/amber palette. Icons come from `lucide-react`.
+**Styling** is hand-written CSS, not utility classes in JSX. `src/client/index.css` keeps one
+`@import "tailwindcss";` — **for Preflight only**, since the component CSS relies on its reset
+(`box-sizing: border-box`, zeroed button/input chrome, `border: 0 solid`) — and then imports the
+stylesheets in `src/client/styles/`: `tokens.css` first, then `base.css`, then one file per
+component area. There is no `tailwind.config.js`; do not add one.
+
+`tokens.css` is the single source of colour, font and shadow values, declared as `:root` custom
+properties. **It does not depend on Tailwind emitting anything.** Tailwind v4 only emits theme
+variables for utilities it finds in the source, and this codebase no longer uses any, so
+`var(--color-slate-900)` would resolve to nothing if the tokens were not declared here. The values
+are the Tailwind v4 defaults, copied verbatim so the refactor changed no colour.
+
+Components carry semantic class names (`.letter-banner__bonus-title`, `.room__round-btn--active`),
+never utility strings, and **conditional styling is expressed as a modifier class**, not as a
+ternary that swaps a bundle of utilities. Icon size and colour are set from the parent via
+descendant `svg` selectors wherever every icon in that element agrees, which is why most
+`lucide-react` elements carry no `className` at all.
+
+⚠️ **There are no inline `style` attributes, and dynamic values must not reintroduce one.** The only
+one that ever existed was the timer bar's `width: {percent}%`; it is now a native `<progress
+className="timer-bar">`, styled through `::-webkit-progress-value` / `::-moz-progress-bar`, with
+`.timer-bar--warning` / `.timer-bar--danger` for the threshold colours.
+
+The design language is deliberately flat and geometric — square corners (no border-radius), 2px
+borders and 4px left-accent rules, hard offset shadows (`--shadow-hard-*`), 0.625rem/900-weight
+uppercase micro-labels with `letter-spacing: 0.1em`, 48px touch targets, and a
+slate/indigo/rose/emerald/amber palette. Icons come from `lucide-react`.
+
+⚠️ **Several accent rules render a uniform border colour, and that is the existing behaviour, not a
+bug introduced by the CSS.** Markup like `border-l-4 border-amber-500 border-y border-r
+border-amber-200` looks like "amber-500 spine, amber-200 frame", but Tailwind orders colour
+utilities by family then shade, so the *later* rule won and every side was amber-500. The same
+applies to the room's match-complete card, where `bg-white` beat `bg-amber-50`. The CSS reproduces
+what the browser actually painted; changing it is a design decision, not a port.
 
 ---
 

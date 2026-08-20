@@ -218,8 +218,9 @@ Adapters: `createBlobStore` (production and Azurite), `createMemoryStore` (tests
 a blob endpoint in Azure, or `UseDevelopmentStorage=true` against Azurite locally.
 
 **Scoring failure is not silently faked.** The client has no local validator. If `/api/validate` fails,
-`App.tsx` shows an error and does **not** record the round, so streak stats cannot be corrupted by a
-guess. The puzzle *fetch* still falls back to `getDailyPuzzleData` so the letter renders offline.
+`useDailyGame` surfaces an error that `DailyGameScreen` renders, and the round is **not** recorded, so
+streak stats cannot be corrupted by a guess. The puzzle *fetch* still falls back to
+`getDailyPuzzleData` so the letter renders offline.
 
 **Telemetry is optional and never load-bearing.** `src/server/telemetry/` holds a `Telemetry` port with a
 no-op adapter, so call sites record unconditionally without null checks, and a `neverThrows` wrapper
@@ -235,16 +236,24 @@ its telemetry vanishes silently. It also calls `dotenv.config()` itself, because
 connection string it cannot parse, and unguarded that would crash the server before it listens — a
 typo in one env var taking the whole game down.
 
-**State and persistence.** No router and no state library. `App.tsx` owns the daily game and the
-current view and passes both down as props; `src/client/components/` holds presentational components
-only. **Room state is not in `App.tsx`** — `src/client/useRoom.ts` owns the seat token, the player
-identity, the staleness epoch, the polling loop and every room action, and returns one
-`RoomController`; `App` only decides which view is on screen, which the hook asks for via `onExited`.
-The room snapshot and the timestamp it arrived at are one piece of state on purpose: a countdown
-measured against a timestamp from a different poll than the room it belongs to is wrong. Persistence
-is `localStorage` via `src/client/storage.ts` under versioned keys `npat_game_stats_v1` /
-`npat_today_result_v1` / `npat_player_v1` / `npat_room_seat_v1` — bump the `_v1` suffix when the
-stored shape changes, since loaders only shallow-merge over `DEFAULT_STATS`.
+**State and persistence.** No router and no state library. **`App.tsx` owns only the current view and
+the chrome** — header, footer, the two modals, the sound toggle — and renders one of three screens:
+`LandingScreen`, `RoomScreen`, `DailyGameScreen`. `src/client/components/` holds presentational
+components only. **Each mode's state lives in its own hook and `App` composes them**:
+`src/client/useDailyGame.ts` owns the puzzle, today's result, the `/api/validate` call and its error;
+`src/client/useGameStats.ts` owns the persisted stats and is the only caller of
+`recordGameCompletion`, which `useDailyGame` reaches through an injected `onCompleted`;
+`src/client/useRoom.ts` owns the seat token, the player identity, the staleness epoch, the polling
+loop and every room action, and returns one `RoomController`. **Do not move mode state or mode
+transitions back into `App.tsx`** — it decides only which view is on screen, which each hook asks for
+through injected callbacks (`onStarted` for the daily round, `onEntered`/`onExited` for rooms). A
+transition belongs to the hook that causes it: `daily.start()` and `rooms.create/join` run the whole
+sequence and fire the callback themselves rather than returning a flag a caller has to remember to
+act on. The room snapshot and the timestamp it arrived at are one piece of
+state on purpose: a countdown measured against a timestamp from a different poll than the room it
+belongs to is wrong. Persistence is `localStorage` via `src/client/storage.ts` under versioned keys
+`npat_game_stats_v1` / `npat_today_result_v1` / `npat_player_v1` / `npat_room_seat_v1` — bump the
+`_v1` suffix when the stored shape changes, since loaders only shallow-merge over `DEFAULT_STATS`.
 
 ⚠️ **There is one game mode: the daily puzzle.** Practice mode was removed — there is no
 `/api/practice-challenge`, no mode toggle, and nothing in the client draws a random solo round.
@@ -300,7 +309,7 @@ every button click still beeped. Never reintroduce a `soundEnabled` check around
   knowledge, not mechanically decidable. Asking harder for bonus-satisfying words pushes on exactly
   that seam: under a double-letter rule for S, `Sam` was advised as `Samm`. The prompt forbids
   inventing or padding words, but nothing in code can catch it.
-- **Streak math exists twice**: `App.tsx#handleSubmitAnswers` computes a streak for the result object,
+- **Streak math exists twice**: `useDailyGame.ts#nextStreak` computes a streak for the result object,
   while `storage.ts#recordGameCompletion` independently recomputes the persisted value. Update both.- **`judgedBy` is the provenance field, and it is persisted.** It is typed in `src/shared/contract.ts` and
 - ⚠️ **A room player id names a seat; the seat token owns it.** Ids are public — `toView` sends every
   player's id to every player, and results carry them — so `authorize()` in `roomState.ts` checks the
@@ -329,13 +338,33 @@ every button click still beeped. Never reintroduce a `soundEnabled` check around
   Put a new type where its *narrowest* audience is — promoting to `src/shared/` is what makes it a contract.
   Components define their own local `...Props` interface and are typed `React.FC<Props>`
   with named exports; only `App.tsx` uses a default export.
-- **Tailwind v4, CSS-first.** Wired through the `@tailwindcss/vite` plugin with a single
-  `@import "tailwindcss";` in `src/client/index.css`. There is no `tailwind.config.js` — do not add one; extend
-  via CSS. Styling is inline utility classes; there are no CSS modules or styled components.
-- **Design language is deliberately flat and geometric**: square corners (no `rounded-*`), `border-2` /
-  `border-l-4` accent rules, hard offset shadows like `shadow-[6px_6px_0px_0px_rgba(0,0,0,0.1)]`,
-  `text-[10px] font-black uppercase tracking-widest` micro-labels, `min-h-[48px]` touch targets, and a
+- **Styling is hand-written CSS in `src/client/styles/`, never utility classes in JSX.**
+  `index.css` keeps `@import "tailwindcss";` **for Preflight only** — the component CSS relies on that
+  reset (`box-sizing: border-box`, zeroed button/input chrome, `border: 0 solid`) — then imports
+  `tokens.css`, `base.css`, and one file per component area. There is no `tailwind.config.js`; do not
+  add one, and do not reintroduce utility classes or `@apply`.
+- **`tokens.css` owns every colour, font and shadow value** as `:root` custom properties, copied
+  verbatim from the Tailwind v4 defaults. It cannot be deleted in favour of Tailwind's own variables:
+  v4 emits theme variables only for utilities it finds in the source, and there are none left, so
+  `var(--color-slate-900)` would resolve to nothing.
+- **Class names are semantic and conditional styling is a modifier class**, not a ternary swapping
+  utility bundles — `` className={`room__row${row.rank === 1 ? ' room__row--winner' : ''}`} ``.
+  Shared primitives live in `base.css` (`.panel`, `.btn-primary`, `.btn-outline`, `.chip`, `.alert`,
+  `.field-label`, `.answer-input`, `.modal*`, `.spinner`); everything else is scoped to its component
+  file. Icon size and colour come from the parent via descendant `svg` selectors, which is why most
+  `lucide-react` elements carry no `className`.
+- ⚠️ **No inline `style` attributes, and dynamic values must not bring one back.** The timer bar's
+  `width: {percent}%` was the only one; it is now a native `<progress className="timer-bar">` styled
+  through `::-webkit-progress-value` / `::-moz-progress-bar`.
+- **Design language is deliberately flat and geometric**: square corners (no border-radius), 2px
+  borders and 4px left-accent rules, hard offset shadows (`--shadow-hard-*`), 0.625rem/900-weight
+  uppercase micro-labels at `letter-spacing: 0.1em`, 48px touch targets, and a
   slate/`indigo-600`/rose/emerald/amber palette. All icons come from `lucide-react`.
+- ⚠️ **A few "accent" rules paint a uniform border colour, and always did.** `border-l-4
+  border-amber-500 border-y border-r border-amber-200` reads as an amber-500 spine in an amber-200
+  frame, but Tailwind sorts colour utilities by family then shade, so amber-500 came later and won on
+  every side; likewise `bg-white` beat `bg-amber-50` on the room's match-complete card. The CSS
+  reproduces what was actually rendered — "fixing" these is a design change, not a port.
 - **`playClickSound()` is called unconditionally** in components, while `playTickSound` and the win/lose
   sounds are gated on the `soundEnabled` prop. Match the surrounding call site rather than assuming a gate.
 - **The `@` alias** maps to the repo root in both `tsconfig.json` and `vite.config.ts`, but nothing uses it;

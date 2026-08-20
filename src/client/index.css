@@ -1,1 +1,14 @@
-@import "tailwindcss";
+@import 'tailwindcss';
+
+@import './styles/tokens.css';
+@import './styles/base.css';
+@import './styles/header.css';
+@import './styles/footer.css';
+@import './styles/landing.css';
+@import './styles/daily-screen.css';
+@import './styles/letter-banner.css';
+@import './styles/category-form.css';
+@import './styles/result-card.css';
+@import './styles/room.css';
+@import './styles/modals.css';
+@import './styles/faq.css';

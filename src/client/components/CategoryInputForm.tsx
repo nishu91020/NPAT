@@ -116,35 +116,41 @@ export const CategoryInputForm: React.FC<CategoryInputFormProps> = ({
   };
 
   const timerPercent = (timeLeft / puzzle.timeLimitSeconds) * 100;
+  const timerToneClass =
+    timeLeft > 30 ? '' : timeLeft > 10 ? ' timer-bar--warning' : ' timer-bar--danger';
 
   return (
-    <form id="npat-input-form" onSubmit={handleSubmit} className="w-full space-y-8 bg-white p-6 sm:p-10 border-2 border-slate-200 shadow-sm">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pb-6 border-b-2 border-slate-200">
-        <div className="border-l-4 border-indigo-600 pl-4">
-          <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Time Remaining</p>
-          <div className="flex items-baseline gap-3 mt-1">
-            <span className={`text-3xl font-black font-mono tracking-tight ${timeLeft <= 10 ? 'text-rose-600 animate-pulse' : 'text-slate-900'}`}>
+    <form
+      id="npat-input-form"
+      onSubmit={handleSubmit}
+      className="panel panel--shadow category-form"
+    >
+      <div className="category-form__status">
+        <div className="category-form__timer">
+          <p className="category-form__timer-label">Time Remaining</p>
+          <div className="category-form__timer-row">
+            <span
+              className={`category-form__clock${timeLeft <= 10 ? ' category-form__clock--urgent' : ''}`}
+            >
               00:{timeLeft < 10 ? `0${timeLeft}` : timeLeft}
             </span>
-            <div className="flex-1 max-w-[140px] bg-slate-100 h-2 border border-slate-200">
-              <div
-                className={`h-full transition-all duration-1000 ${
-                  timeLeft > 30 ? 'bg-indigo-600' : timeLeft > 10 ? 'bg-amber-500' : 'bg-rose-600'
-                }`}
-                style={{ width: `${Math.max(0, Math.min(100, timerPercent))}%` }}
-              />
-            </div>
+            <progress
+              className={`timer-bar${timerToneClass}`}
+              max={100}
+              value={Math.max(0, Math.min(100, timerPercent))}
+              aria-label="Time remaining"
+            />
           </div>
         </div>
 
-        <div className="border-l-4 border-rose-500 pl-4">
-          <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest">Lives Remaining</p>
-          <div className="flex items-center gap-2 mt-2">
+        <div className="category-form__lives">
+          <p className="category-form__lives-label">Lives Remaining</p>
+          <div className="category-form__life-row">
             {[1, 2, 3].map((num) => (
               <div
                 key={num}
-                className={`w-5 h-5 transition-all ${
-                  num <= lives ? 'bg-rose-500 shadow-sm' : 'bg-slate-200 border border-slate-300'
+                className={`category-form__life ${
+                  num <= lives ? 'category-form__life--filled' : 'category-form__life--empty'
                 }`}
               />
             ))}
@@ -153,34 +159,31 @@ export const CategoryInputForm: React.FC<CategoryInputFormProps> = ({
       </div>
 
       {validationError && (
-        <div className="p-4 bg-amber-50 border-l-4 border-amber-500 text-amber-900 text-xs font-bold uppercase tracking-wider flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+        <div className="alert alert--warning">
+          <AlertCircle />
           <span>{validationError}</span>
         </div>
       )}
 
-      <div className="space-y-6">
+      <div className="category-form__fields">
         {CATEGORIES.map((cat) => {
           const val = answers[cat.key];
           const status = getLetterStatus(val);
 
           return (
-            <div key={cat.key} className="group">
-              <div className="flex items-center justify-between mb-2">
-                <label
-                  htmlFor={`input-${cat.key}`}
-                  className="block text-[10px] font-black text-slate-400 uppercase tracking-widest"
-                >
+            <div key={cat.key}>
+              <div className="category-form__field-head">
+                <label htmlFor={`input-${cat.key}`} className="field-label">
                   {CATEGORY_NUMBERS[cat.key]}
                 </label>
 
                 {status === true && (
-                  <span className="text-[10px] font-black text-emerald-700 bg-emerald-50 px-2 py-0.5 border border-emerald-200 uppercase tracking-widest flex items-center gap-1">
-                    <Check className="w-3 h-3" /> Starts with {targetLetter}
+                  <span className="category-form__flag category-form__flag--ok">
+                    <Check /> Starts with {targetLetter}
                   </span>
                 )}
                 {status === false && (
-                  <span className="text-[10px] font-black text-rose-700 bg-rose-50 px-2 py-0.5 border border-rose-200 uppercase tracking-widest">
+                  <span className="category-form__flag category-form__flag--bad">
                     Must start with "{targetLetter}"
                   </span>
                 )}
@@ -196,12 +199,12 @@ export const CategoryInputForm: React.FC<CategoryInputFormProps> = ({
                 autoComplete="off"
                 autoCorrect="off"
                 spellCheck={false}
-                className={`w-full min-h-[48px] border-b-4 p-3 sm:p-4 text-xl sm:text-3xl font-black uppercase outline-none transition-colors text-slate-900 bg-transparent placeholder:text-slate-300 placeholder:font-bold ${
+                className={`answer-input category-form__input${
                   status === true
-                    ? 'border-emerald-500'
+                    ? ' answer-input--valid'
                     : status === false
-                    ? 'border-rose-500'
-                    : 'border-slate-200 focus:border-indigo-600'
+                      ? ' answer-input--invalid'
+                      : ''
                 }`}
               />
             </div>
@@ -209,16 +212,16 @@ export const CategoryInputForm: React.FC<CategoryInputFormProps> = ({
         })}
       </div>
 
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4">
+      <div className="category-form__actions">
         <button
           type="button"
           onClick={() => {
             playClickSound();
             setAnswers({ name: '', place: '', animal: '', thing: '' });
           }}
-          className="w-full sm:w-auto min-h-[48px] px-6 py-3 border-2 border-slate-200 hover:border-slate-400 text-slate-700 font-extrabold text-xs uppercase tracking-widest transition-colors flex items-center justify-center gap-2"
+          className="category-form__clear"
         >
-          <RefreshCw className="w-3.5 h-3.5" /> Clear All
+          <RefreshCw /> Clear All
         </button>
 
         <button
@@ -226,16 +229,16 @@ export const CategoryInputForm: React.FC<CategoryInputFormProps> = ({
           type="submit"
           disabled={isSubmitting}
           onClick={() => playClickSound()}
-          className="w-full sm:w-auto flex-1 max-w-md min-h-[56px] py-4 sm:py-5 bg-slate-900 hover:bg-slate-800 text-white font-black text-base sm:text-lg uppercase tracking-widest shadow-[6px_6px_0px_0px_rgba(0,0,0,0.1)] hover:translate-y-[-2px] active:translate-y-[2px] transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+          className="btn-primary btn-primary--lift category-form__submit"
         >
           {isSubmitting ? (
             <>
-              <div className="w-5 h-5 border-2 border-white border-t-transparent animate-spin" />
+              <div className="spinner-ring" />
               <span>Verifying Answers...</span>
             </>
           ) : (
             <>
-              <Send className="w-5 h-5" />
+              <Send />
               <span>Submit Today's Set</span>
             </>
           )}

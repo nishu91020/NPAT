@@ -31,8 +31,8 @@ export interface RoomController {
   playerName: string;
 
   inviteCode: string;
-  create: (name: string) => Promise<boolean>;
-  join: (name: string, code: string) => Promise<boolean>;
+  create: (name: string) => Promise<void>;
+  join: (name: string, code: string) => Promise<void>;
   startRound: () => Promise<void>;
   submitAnswers: (answers: UserAnswers, auto?: boolean) => Promise<void>;
   setRounds: (totalRounds: number) => Promise<void>;
@@ -47,6 +47,8 @@ export interface RoomController {
 
 interface UseRoomOptions {
 
+  onEntered: () => void;
+
   onExited: () => void;
 }
 
@@ -54,7 +56,7 @@ function describeError(err: unknown): string {
   return err instanceof RoomRequestError ? err.message : 'Something went wrong. Try again.';
 }
 
-export function useRoom({ onExited }: UseRoomOptions): RoomController {
+export function useRoom({ onEntered, onExited }: UseRoomOptions): RoomController {
   const [player, setPlayer] = useState(loadPlayerIdentity);
 
   const [snapshot, setSnapshot] = useState<{ room: RoomView | null; fetchedAtMs: number }>({
@@ -70,6 +72,9 @@ export function useRoom({ onExited }: UseRoomOptions): RoomController {
 
   const exited = useRef(onExited);
   exited.current = onExited;
+
+  const entered = useRef(onEntered);
+  entered.current = onEntered;
 
   const [inviteCode] = useState(() => {
     if (typeof window === 'undefined') return '';
@@ -175,7 +180,7 @@ export function useRoom({ onExited }: UseRoomOptions): RoomController {
 
       release();
       setError(null);
-      return run(() => createRoom(identity.id, name));
+      if (await run(() => createRoom(identity.id, name))) entered.current();
     },
 
     async join(name, roomCode) {
@@ -184,7 +189,7 @@ export function useRoom({ onExited }: UseRoomOptions): RoomController {
       const identity = rememberName(name);
       release();
       setError(null);
-      return run(() => joinRoom(roomCode, identity.id, name, held));
+      if (await run(() => joinRoom(roomCode, identity.id, name, held))) entered.current();
     },
 
     startRound: () => act((room) => startRoomRound(room.code, seat())),
