@@ -488,9 +488,20 @@ unconstrained random draw:
 
 Bump the `_v1` suffix when a stored shape changes: loaders only shallow-merge over `DEFAULT_STATS`.
 
-> ⚠️ **Streak math exists twice** — `useDailyGame.ts#nextStreak` computes a streak for the result
-> object, and `storage.ts#recordGameCompletion` independently recomputes the persisted value. Update
-> both.
+> ⚠️ **Streak math lives in exactly one function.** `streakAfterCompletion(stats, dateKey)` decides
+> what a completed round makes the streak. `recordGameCompletion` persists its answer and
+> `projectedStreak` is what `useDailyGame` writes onto the result card, so the streak a player is
+> shown and the streak that gets saved cannot disagree. It used to exist twice, as
+> `useDailyGame.ts#nextStreak` and again inside `recordGameCompletion`.
+
+> ⚠️ **A stored streak is only true on the day it was written, so `loadGameStats` decays it on read.**
+> `currentStreak` in storage is a record of the last completed round, not a live figure. Once
+> `lastPlayedDate` is older than yesterday the chain is broken, and `loadGameStats` returns `0` for it.
+> Without that the header went on advertising a streak to someone who had not played in weeks, and it
+> only reset when they next submitted a round. The decay is **read-only** — nothing writes it back,
+> `lastPlayedDate` remains the record of what happened, and `recordGameCompletion` and
+> `projectedStreak` read the raw value on purpose, because they still need to tell "played yesterday"
+> from "the chain died long ago".
 
 > ⚠️ **Stored rounds outlive the features that wrote them.** `GameResult.mode` is the surviving
 > example: practice mode is gone and nothing writes it, but rounds saved while it existed are still

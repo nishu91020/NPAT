@@ -83,7 +83,22 @@ const DEFAULT_STATS: GameStats = {
   history: {},
 };
 
-export function loadGameStats(): GameStats {
+function dateKeyFrom(date: Date): string {
+  return date.toISOString().split('T')[0];
+}
+
+function dayBefore(dateKey: string): string {
+  const date = new Date(`${dateKey}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() - 1);
+  return dateKeyFrom(date);
+}
+
+export function streakAfterCompletion(stats: GameStats, dateKey: string): number {
+  if (stats.lastPlayedDate === dateKey) return stats.currentStreak;
+  return stats.lastPlayedDate === dayBefore(dateKey) ? stats.currentStreak + 1 : 1;
+}
+
+function readGameStats(): GameStats {
   try {
     const raw = localStorage.getItem(STATS_KEY);
     if (!raw) return DEFAULT_STATS;
@@ -92,6 +107,20 @@ export function loadGameStats(): GameStats {
   } catch (e) {
     return DEFAULT_STATS;
   }
+}
+
+export function loadGameStats(): GameStats {
+  const stats = readGameStats();
+  const today = dateKeyFrom(new Date());
+
+  if (stats.lastPlayedDate === today || stats.lastPlayedDate === dayBefore(today)) {
+    return stats;
+  }
+  return { ...stats, currentStreak: 0 };
+}
+
+export function projectedStreak(dateKey: string): number {
+  return streakAfterCompletion(readGameStats(), dateKey);
 }
 
 export function saveGameStats(stats: GameStats): void {
@@ -103,25 +132,10 @@ export function saveGameStats(stats: GameStats): void {
 }
 
 export function recordGameCompletion(result: GameResult): GameStats {
-  const currentStats = loadGameStats();
+  const currentStats = readGameStats();
   const dateKey = result.dateString;
 
-  const isNewDailyDay = currentStats.lastPlayedDate !== dateKey;
-
-  let newStreak = currentStats.currentStreak;
-  if (isNewDailyDay) {
-
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().split('T')[0];
-
-    if (currentStats.lastPlayedDate === yesterdayStr || currentStats.lastPlayedDate === null) {
-      newStreak = currentStats.currentStreak + 1;
-    } else {
-      newStreak = 1;
-    }
-  }
-
+  const newStreak = streakAfterCompletion(currentStats, dateKey);
   const maxStreak = Math.max(currentStats.maxStreak, newStreak);
   const isWin = result.validation.totalScore >= 20;
 

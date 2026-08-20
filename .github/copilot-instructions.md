@@ -309,8 +309,18 @@ every button click still beeped. Never reintroduce a `soundEnabled` check around
   knowledge, not mechanically decidable. Asking harder for bonus-satisfying words pushes on exactly
   that seam: under a double-letter rule for S, `Sam` was advised as `Samm`. The prompt forbids
   inventing or padding words, but nothing in code can catch it.
-- **Streak math exists twice**: `useDailyGame.ts#nextStreak` computes a streak for the result object,
-  while `storage.ts#recordGameCompletion` independently recomputes the persisted value. Update both.- **`judgedBy` is the provenance field, and it is persisted.** It is typed in `src/shared/contract.ts` and
+- **Streak math lives in exactly one function.** `streakAfterCompletion(stats, dateKey)` in
+  `storage.ts` decides what a completed round makes the streak; `recordGameCompletion` persists it and
+  `projectedStreak` is what `useDailyGame` puts on the result card, so the number shown and the number
+  saved cannot drift. It used to exist twice — `useDailyGame.ts#nextStreak` recomputed it
+  independently — and it is not worth reintroducing that.
+- ⚠️ **A stored streak is only true on the day it was written; `loadGameStats` decays it on read.**
+  The persisted `currentStreak` is a record of the last completed round, so once `lastPlayedDate` is
+  older than yesterday the chain is broken and `loadGameStats` returns `0`. Without that, a streak
+  stayed on screen indefinitely and only reset when the player next submitted — the header claimed a
+  live streak for someone who had not played in weeks. The decay is **read-only**: nothing writes it
+  back, `lastPlayedDate` stays the record, and `recordGameCompletion`/`projectedStreak` deliberately
+  read the raw value so they can tell "played yesterday" from "chain long dead".- **`judgedBy` is the provenance field, and it is persisted.** It is typed in `src/shared/contract.ts` and
 - ⚠️ **A room player id names a seat; the seat token owns it.** Ids are public — `toView` sends every
   player's id to every player, and results carry them — so `authorize()` in `roomState.ts` checks the
   server-issued `token`, and **every** room entry point goes through it, reads included. Authorising

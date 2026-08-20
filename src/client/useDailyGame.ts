@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { DailyPuzzle, UserAnswers, ValidationResponse } from '../shared/contract';
 import type { GameResult } from './types';
 import { getDailyPuzzleData } from '../shared/puzzle';
-import { loadGameStats, loadTodayDailyResult } from './storage';
+import { loadTodayDailyResult, projectedStreak } from './storage';
 import { playFailureSound, playSuccessSound } from './audio';
 
 const WIN_SCORE = 20;
@@ -29,20 +29,6 @@ interface UseDailyGameOptions {
 
 function today(): string {
   return new Date().toISOString().split('T')[0];
-}
-
-function yesterday(): string {
-  const date = new Date();
-  date.setDate(date.getDate() - 1);
-  return date.toISOString().split('T')[0];
-}
-
-function nextStreak(dateStr: string): number {
-  const stats = loadGameStats();
-  if (stats.lastPlayedDate === yesterday() || stats.lastPlayedDate === null) {
-    return stats.currentStreak + 1;
-  }
-  return stats.lastPlayedDate === dateStr ? stats.currentStreak : 1;
 }
 
 export function useDailyGame({ onStarted, onCompleted }: UseDailyGameOptions): DailyGameController {
@@ -118,7 +104,7 @@ export function useDailyGame({ onStarted, onCompleted }: UseDailyGameOptions): D
       answers,
       validation,
       score: validation.totalScore,
-      streak: nextStreak(today()),
+      streak: projectedStreak(puzzle.dateString),
       timeTaken,
       livesRemaining: remainingLives,
       completedAt: new Date().toISOString(),
