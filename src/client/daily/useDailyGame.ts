@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import type { DailyPuzzle, UserAnswers, ValidationResponse } from '../shared/contract';
-import type { GameResult } from './types';
-import { getDailyPuzzleData } from '../shared/puzzle';
-import { loadTodayDailyResult, projectedStreak } from './storage';
-import { playFailureSound, playSuccessSound } from './audio';
+import type { DailyPuzzle, UserAnswers, ValidationResponse } from '../../shared/contract';
+import type { GameResult } from '../types';
+import { getDailyPuzzleData } from '../../shared/puzzle';
+import { loadTodayDailyResult, projectedStreak } from '../storage';
+import { playFailureSound, playSuccessSound } from '../audio';
 
 const WIN_SCORE = 20;
 

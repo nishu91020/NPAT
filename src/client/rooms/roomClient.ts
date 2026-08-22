@@ -1,4 +1,4 @@
-import type { RoomView, UserAnswers } from '../shared/contract';
+import type { RoomView, UserAnswers } from '../../shared/contract';
 
 export interface PlayerSeat {
   playerId: string;

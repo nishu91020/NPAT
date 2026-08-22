@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { CategoryKey, RoomView, UserAnswers } from '../../shared/contract';
 import { ROOM_ROUND_CHOICES } from '../../shared/contract';
 import { CATEGORIES } from '../categories';
-import { secondsLeft } from '../roomClient';
+import { secondsLeft } from './roomClient';
 import { playClickSound, playTickSound } from '../audio';
 import {
   ArrowLeft,

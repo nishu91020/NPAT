@@ -238,8 +238,16 @@ typo in one env var taking the whole game down.
 
 **State and persistence.** No router and no state library. **`App.tsx` owns only the current view and
 the chrome** — header, footer, the two modals, the sound toggle — and renders one of three screens:
-`LandingScreen`, `RoomScreen`, `DailyGameScreen`. `src/client/components/` holds presentational
-components only. **`LandingScreen` only chooses a view**: it holds the `intent`
+`LandingScreen`, `RoomScreen`, `DailyGameScreen`. **`src/client/` is grouped by feature the way
+`src/server/` is grouped by domain** — `layout/` (Header, AppFooter), `modals/` (HelpRulesModal,
+StreakStatsModal), `seo/` (SeoFaqSection),
+`landing/`, `daily/` (its hook, screen, LetterBanner, CategoryInputForm, ValidationResultCard,
+judgedBy, shareCard) and `rooms/` (useRoom, roomClient, RoomScreen and the create/join forms), with
+`styles/` alongside. Each folder holds its own hook *and* its own components. There is no
+`components/` folder any more; a file sits at the client root only when more than one feature needs
+it (`audio.ts`, `storage.ts`, `types.ts`, `categories.ts`). **The room forms live in `rooms/` even
+though `landing/` renders them** — they are about taking a seat, not about the landing page.
+Components stay presentational and hooks keep the state. **`LandingScreen` only chooses a view**: it holds the `intent`
 (`null`/`'create'`/`'join'`) and renders `LandingHero` plus one of `LandingModeCards`,
 `CreateRoomForm`, `JoinRoomForm`. **Do not merge the two room forms back into one.** They were one
 form threaded with `intent === 'create' ? … : …` in five places — title, code field, submit icon,
@@ -247,10 +255,10 @@ submit label, validity — and neither flow could be read without running the ot
 share only `RoomFormPanel` (titled panel with back, error, primary submit) and `RoomNameField`; the
 player's name lives in `LandingScreen` so it survives switching forms, while the code lives in
 `JoinRoomForm` because it means nothing anywhere else. **Each mode's state lives in its own hook and `App` composes them**:
-`src/client/useDailyGame.ts` owns the puzzle, today's result, the `/api/validate` call and its error;
-`src/client/useGameStats.ts` owns the persisted stats and is the only caller of
+`src/client/daily/useDailyGame.ts` owns the puzzle, today's result, the `/api/validate` call and its error;
+`src/client/daily/useGameStats.ts` owns the persisted stats and is the only caller of
 `recordGameCompletion`, which `useDailyGame` reaches through an injected `onCompleted`;
-`src/client/useRoom.ts` owns the seat token, the player identity, the staleness epoch, the polling
+`src/client/rooms/useRoom.ts` owns the seat token, the player identity, the staleness epoch, the polling
 loop and every room action, and returns one `RoomController`. **Do not move mode state or mode
 transitions back into `App.tsx`** — it decides only which view is on screen, which each hook asks for
 through injected callbacks (`onStarted` for the daily round, `onEntered`/`onExited` for rooms). A
@@ -359,7 +367,7 @@ every button click still beeped. Never reintroduce a `soundEnabled` check around
   conditional writes a second against one blob, which the judging publish has to win.- **`judgedBy` is the provenance field, and it is persisted.** It is typed in `src/shared/contract.ts` and
   optional only so rounds saved before it existed still parse. Because it lives inside saved rounds in
   `localStorage`, values from earlier releases arrive forever — `'gemini'` from the Gemini era, and
-  `undefined` from before the field. Use `isAiJudged()` in `src/client/judgedBy.ts` rather than comparing
+  `undefined` from before the field. Use `isAiJudged()` in `src/client/daily/judgedBy.ts` rather than comparing
   values inline, and never weaken it to a truthiness check (`undefined !== false` was a real bug that
   showed the AI badge on heuristic rounds).
 - **Types are split by who needs them.** Wire types live in `src/shared/contract.ts` (`CategoryKey`,

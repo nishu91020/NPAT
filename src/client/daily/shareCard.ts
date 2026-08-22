@@ -1,4 +1,4 @@
-import { CategoryKey } from '../shared/contract';
+import { CategoryKey } from '../../shared/contract';
 
 export function generateShareCard(
   dayNumber: number,

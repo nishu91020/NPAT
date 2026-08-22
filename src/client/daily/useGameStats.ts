@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import type { GameResult, GameStats } from './types';
-import { loadGameStats, recordGameCompletion } from './storage';
+import type { GameResult, GameStats } from '../types';
+import { loadGameStats, recordGameCompletion } from '../storage';
 
 export interface StatsController {
   stats: GameStats;

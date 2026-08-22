@@ -557,8 +557,35 @@ with Entra ID, or a connection string for Azurite locally. `blobStore.get` treat
 
 No router, no state library. **`App.tsx` owns only the current view and the app chrome** — the
 header, the footer, the two modals and the sound toggle — and picks one of three screens:
-`LandingScreen`, `RoomScreen`, `DailyGameScreen`. `src/client/components/` holds presentational
-components only, each with a local `...Props` interface and a named export (`App.tsx` is the only
+`LandingScreen`, `RoomScreen`, `DailyGameScreen`.
+
+**`src/client/` is grouped by feature, the way `src/server/` is grouped by domain.** Each folder holds
+its own hook *and* its own components, so a mode can be read in one place instead of hopping between a
+flat `components/` and a flat pile of hooks:
+
+```
+src/client/
+  App.tsx  main.tsx  index.css        composition root
+  audio.ts  storage.ts  types.ts  categories.ts    shared by more than one mode
+  layout/    Header, AppFooter                     the frame around every screen
+  modals/    HelpRulesModal, StreakStatsModal      the overlays App owns
+  seo/       SeoFaqSection                         static copy, paired with index.html's JSON-LD
+  landing/   LandingScreen, LandingHero, LandingModeCards
+  daily/     useDailyGame, useGameStats, DailyGameScreen, LetterBanner,
+             CategoryInputForm, ValidationResultCard, judgedBy, shareCard
+  rooms/     useRoom, roomClient, RoomScreen, CreateRoomForm, JoinRoomForm,
+             RoomFormPanel, RoomNameField
+  styles/    the stylesheets index.css imports
+```
+
+A file sits at the root only when more than one feature needs it — `storage.ts` keeps stats, the player
+identity *and* the room seat; `audio.ts` and `categories.ts` are used by both modes. **The room forms
+live in `rooms/` even though `landing/` renders them**, because they are about taking a seat, not about
+the landing page; `landing/` composing them is the dependency pointing the right way. Components stay
+presentational and hooks keep the state — that rule survived the move, it is just no longer enforced by
+a folder called `components/`.
+
+Every component still has a local `...Props` interface and a named export (`App.tsx` is the only
 default export).
 
 **`LandingScreen` chooses between three views and owns nothing else.** It holds the `intent`

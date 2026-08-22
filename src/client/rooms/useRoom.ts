@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { RoomView, UserAnswers } from '../shared/contract';
+import type { RoomView, UserAnswers } from '../../shared/contract';
 import {
   ROOM_POLL_MS,
   RoomRequestError,
@@ -20,7 +20,7 @@ import {
   loadRoomSeat,
   savePlayerIdentity,
   saveRoomSeat,
-} from './storage';
+} from '../storage';
 
 export interface RoomController {
   room: RoomView | null;

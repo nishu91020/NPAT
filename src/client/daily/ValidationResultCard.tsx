@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { GameResult } from '../types';
-import { generateShareCard } from '../shareCard';
-import { isAiJudged } from '../judgedBy';
+import { generateShareCard } from './shareCard';
+import { isAiJudged } from './judgedBy';
 import { Trophy, Share2, Copy, Check, Sparkles, Flame, ArrowRight, User, MapPin, Dog, Package, Award, Lightbulb } from 'lucide-react';
 import { playClickSound, playSuccessSound } from '../audio';
 

@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { useRoom } from './useRoom';
-import { useDailyGame } from './useDailyGame';
-import { useGameStats } from './useGameStats';
+import { useRoom } from './rooms/useRoom';
+import { useDailyGame } from './daily/useDailyGame';
+import { useGameStats } from './daily/useGameStats';
 import { setMuted } from './audio';
-import { Header } from './components/Header';
-import { AppFooter } from './components/AppFooter';
-import { LandingScreen } from './components/LandingScreen';
-import { RoomScreen } from './components/RoomScreen';
-import { DailyGameScreen } from './components/DailyGameScreen';
-import { StreakStatsModal } from './components/StreakStatsModal';
-import { HelpRulesModal } from './components/HelpRulesModal';
-import { SeoFaqSection } from './components/SeoFaqSection';
+import { Header } from './layout/Header';
+import { AppFooter } from './layout/AppFooter';
+import { LandingScreen } from './landing/LandingScreen';
+import { RoomScreen } from './rooms/RoomScreen';
+import { DailyGameScreen } from './daily/DailyGameScreen';
+import { StreakStatsModal } from './modals/StreakStatsModal';
+import { HelpRulesModal } from './modals/HelpRulesModal';
+import { SeoFaqSection } from './seo/SeoFaqSection';
 
 type View = 'landing' | 'game' | 'room';
 
