@@ -239,7 +239,14 @@ typo in one env var taking the whole game down.
 **State and persistence.** No router and no state library. **`App.tsx` owns only the current view and
 the chrome** — header, footer, the two modals, the sound toggle — and renders one of three screens:
 `LandingScreen`, `RoomScreen`, `DailyGameScreen`. `src/client/components/` holds presentational
-components only. **Each mode's state lives in its own hook and `App` composes them**:
+components only. **`LandingScreen` only chooses a view**: it holds the `intent`
+(`null`/`'create'`/`'join'`) and renders `LandingHero` plus one of `LandingModeCards`,
+`CreateRoomForm`, `JoinRoomForm`. **Do not merge the two room forms back into one.** They were one
+form threaded with `intent === 'create' ? … : …` in five places — title, code field, submit icon,
+submit label, validity — and neither flow could be read without running the other in your head. They
+share only `RoomFormPanel` (titled panel with back, error, primary submit) and `RoomNameField`; the
+player's name lives in `LandingScreen` so it survives switching forms, while the code lives in
+`JoinRoomForm` because it means nothing anywhere else. **Each mode's state lives in its own hook and `App` composes them**:
 `src/client/useDailyGame.ts` owns the puzzle, today's result, the `/api/validate` call and its error;
 `src/client/useGameStats.ts` owns the persisted stats and is the only caller of
 `recordGameCompletion`, which `useDailyGame` reaches through an injected `onCompleted`;

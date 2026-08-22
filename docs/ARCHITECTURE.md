@@ -561,6 +561,17 @@ header, the footer, the two modals and the sound toggle — and picks one of thr
 components only, each with a local `...Props` interface and a named export (`App.tsx` is the only
 default export).
 
+**`LandingScreen` chooses between three views and owns nothing else.** It holds the `intent`
+(`null` | `'create'` | `'join'`) and renders `LandingHero` plus one of `LandingModeCards`,
+`CreateRoomForm` or `JoinRoomForm`. Creating and joining used to be one form threaded with
+`intent === 'create' ? … : …` in five places — the title, the code field, the submit icon, the submit
+label and the validity rule — so neither flow could be read without mentally running the other.
+Each form now states its own copy and its own `canSubmit`, and shares only what is genuinely
+identical: `RoomFormPanel` (the titled panel with back, error and primary submit) and
+`RoomNameField`. **The player's name lives in `LandingScreen`, the room code lives in
+`JoinRoomForm`** — a name belongs to the person and survives switching between the two forms, a code
+only means anything when joining.
+
 **Each mode owns its own state in a hook, and `App` composes them.** `useDailyGame.ts` owns the
 puzzle, today's result, the submit call and its error; `useGameStats.ts` owns the persisted stats and
 is the only thing that calls `recordGameCompletion`, which `useDailyGame` reaches through an injected
