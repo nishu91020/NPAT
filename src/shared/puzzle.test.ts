@@ -11,6 +11,20 @@ const FROZEN = [
   { date: '2027-06-30', letter: 'F', challengeId: 'world_place', dayNumber: 546 },
 ];
 
+const AVAILABLE_LETTERS = [
+  'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'R', 'S', 'T',
+  'V', 'W',
+];
+
+function rawHashLetter(dateStr: string): string {
+  let hash = 0;
+  for (let i = 0; i < dateStr.length; i++) {
+    hash = (hash << 5) - hash + dateStr.charCodeAt(i);
+    hash |= 0;
+  }
+  return AVAILABLE_LETTERS[Math.abs(hash) % AVAILABLE_LETTERS.length];
+}
+
 describe('getDailyPuzzleData', () => {
   it.each(FROZEN)('derives $date exactly as it always has', (expected) => {
     const puzzle = getDailyPuzzleData(expected.date);
@@ -22,6 +36,56 @@ describe('getDailyPuzzleData', () => {
 
   it('is stable across calls', () => {
     expect(getDailyPuzzleData('2026-04-04')).toEqual(getDailyPuzzleData('2026-04-04'));
+  });
+
+  it('never gives the same letter two days running', () => {
+    let previous = getDailyPuzzleData('2026-01-01').letter;
+
+    for (let day = 1; day < 4000; day++) {
+      const date = new Date(Date.UTC(2026, 0, 1) + day * 86_400_000).toISOString().split('T')[0];
+      const letter = getDailyPuzzleData(date).letter;
+
+      expect(letter, date).not.toBe(previous);
+      previous = letter;
+    }
+  });
+
+  it.each([
+    { yesterday: '2030-12-31', today: '2031-01-01' },
+    { yesterday: '2032-12-31', today: '2033-01-01' },
+  ])('breaks the $today collision the raw hash used to produce', ({ yesterday, today }) => {
+    expect(getDailyPuzzleData(today).letter).not.toBe(getDailyPuzzleData(yesterday).letter);
+  });
+
+  it('nudges only the days that collided, leaving every other date on its raw hash letter', () => {
+    const nudged: string[] = [];
+
+    for (let day = 0; day < 4000; day++) {
+      const date = new Date(Date.UTC(2026, 0, 1) + day * 86_400_000).toISOString().split('T')[0];
+      if (getDailyPuzzleData(date).letter !== rawHashLetter(date)) nudged.push(date);
+    }
+
+    expect(nudged).toEqual(['2031-01-01', '2033-01-01']);
+  });
+
+  it('survives a date string that is not a date, since /api/daily-challenge takes a query param', () => {
+    expect(() => getDailyPuzzleData('not-a-date')).not.toThrow();
+    expect(getDailyPuzzleData('not-a-date').letter).toBeTruthy();
+  });
+
+  it('still spreads the letters evenly', () => {
+    const counts = new Map<string, number>();
+
+    for (let day = 0; day < 2100; day++) {
+      const date = new Date(Date.UTC(2026, 0, 1) + day * 86_400_000).toISOString().split('T')[0];
+      const letter = getDailyPuzzleData(date).letter;
+      counts.set(letter, (counts.get(letter) ?? 0) + 1);
+    }
+
+    expect(counts.size).toBe(21);
+    for (const [letter, count] of counts) {
+      expect(count, letter).toBeGreaterThan(60);
+    }
   });
 
   it('only ever picks from the frozen prefix', () => {

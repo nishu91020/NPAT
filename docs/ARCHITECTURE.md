@@ -152,7 +152,24 @@ sequenceDiagram
 (21 letters — Q/U/X/Y/Z are excluded as unplayable), picks a fallback challenge, and derives
 `dayNumber` from a `2026-01-01` epoch. There is no database of puzzles.
 
+**The letter is then held to one extra rule: it must differ from yesterday's.** `letterIndexFor`
+compares the date's raw hash index against the previous day's *resolved* index and, only when they
+match, moves it on by a second hash-derived step. The step is derived rather than `+1` because
+consecutive dates inside a month already hash one apart, so `+1` walked straight into the next day's
+letter and cascaded — the fix produced five changed days in a row and still left a collision at the
+end of the chain.
+
+This is a **local rule with a bounded lookback**, not a chain back to the epoch, so the cost is a
+handful of hashes rather than one per day since launch. That leaves a theoretical gap where a long
+enough run of collisions could out-reach the lookback; over 120 years there is not one, and the
+lookback is five days deep against collisions that occur twice in twenty.
+
 > ⚠️ Changing the hash, the letter list or the epoch **retroactively rewrites every past puzzle**.
+> Adding the no-repeat rule was itself such a change, and was only acceptable because it was measured
+> first: across 120 years it moves **three** dates — `2031-01-01`, `2033-01-01` and `2138-01-01`, all
+> year boundaries, all in the future — and **nothing on or before the day it shipped**. `puzzle.test.ts`
+> pins that exact set, so any future change that quietly rewrites a different date fails loudly.
+>
 > The same is true of the first `DETERMINISTIC_CHALLENGE_COUNT` (7) entries of `BONUS_CHALLENGES`:
 > the derivation indexes that prefix, and it was once `% BONUS_CHALLENGES.length`, which meant
 > appending a single challenge silently changed which one every past date resolved to.

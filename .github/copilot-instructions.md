@@ -199,6 +199,16 @@ string to pick a letter from `AVAILABLE_LETTERS` (Q/U/X/Y/Z are deliberately exc
 challenge, and derives `dayNumber` from a `2026-01-01` epoch. There is no database. Changing the hash,
 the letter list, or the epoch retroactively rewrites every past puzzle — treat those as frozen constants.
 
+⚠️ **The letter must also differ from yesterday's, and that rule has a sharp edge.** `letterIndexFor`
+compares the raw hash index against the previous day's *resolved* index and, only on a match, moves it
+on by a second hash-derived step. **Do not simplify that step to `+1`**: consecutive dates inside a
+month already hash one apart, so `+1` lands on the next day's letter and cascades — it changed five
+days in a row and still left a collision at the end. The lookback is bounded (five days) rather than a
+chain to the epoch, so this is a local rule, not an O(days-since-launch) walk. Adding it moved three
+dates in 120 years (`2031-01-01`, `2033-01-01`, `2138-01-01` — all year boundaries, all future) and
+nothing on or before the day it shipped; `puzzle.test.ts` pins that exact set, so a change that
+rewrites any other date fails loudly.
+
 ⚠️ **`BONUS_CHALLENGES` is part of that frozen set, but only its first `DETERMINISTIC_CHALLENGE_COUNT`
 entries.** The daily derivation indexes that prefix, never the whole array — it was
 `% BONUS_CHALLENGES.length`, which meant appending a single challenge silently rewrote which one every
