@@ -79,7 +79,8 @@ judging that never happens.
 - **`src/shared/`** — the only code both tiers run. No `window`, no `localStorage`, no Node built-ins,
   and no imports from either tier. `contract.ts` holds the wire types; `puzzle.ts` holds the daily
   derivation, shared because the client derives the puzzle optimistically to render before the
-  network answers, and the two derivations must agree exactly.
+  network answers, and the two derivations must agree exactly; `bonusChallenges.ts` holds the
+  built-in challenge pool the derivation draws from.
 - **`src/server/`** — server-only. This is what keeps the LLM SDK, the prompts and the scoring rules
   out of the browser bundle.
 - **`src/client/`** — browser-only. `types.ts` holds only what never leaves the browser
@@ -154,10 +155,19 @@ sequenceDiagram
 > ⚠️ Changing the hash, the letter list or the epoch **retroactively rewrites every past puzzle**.
 > The same is true of the first `DETERMINISTIC_CHALLENGE_COUNT` (7) entries of `BONUS_CHALLENGES`:
 > the derivation indexes that prefix, and it was once `% BONUS_CHALLENGES.length`, which meant
-> appending a single challenge silently changed which one every past date resolved to. Add challenges
-> by **appending below the marker** in `puzzle.ts`; the extras are drawn by room rounds and the
-> random fallback, neither of which has to agree with history. `puzzle.test.ts` pins the prefix, its
-> order, and golden letter/challenge/`dayNumber` values for known dates.
+> appending a single challenge silently changed which one every past date resolved to.
+>
+> The pool lives in `src/shared/bonusChallenges.ts`, and the prefix is now **structural rather than a
+> convention**: `FROZEN_CHALLENGES` holds those seven, `EXTRA_CHALLENGES` holds everything since, and
+> `BONUS_CHALLENGES` is the two spread together with `DETERMINISTIC_CHALLENGE_COUNT` derived from
+> `FROZEN_CHALLENGES.length`. **Add challenges to `EXTRA_CHALLENGES`**, where appending cannot shift
+> the prefix and the count cannot drift out of step with the array. Adding to `FROZEN_CHALLENGES`
+> still rewrites history — and now fails the tests that pin the prefix and the golden dates.
+>
+> The extras are drawn by room rounds and the random fallback, neither of which has to agree with
+> history. `puzzle.test.ts` pins golden letter/challenge/`dayNumber` values for known dates;
+> `bonusChallenges.test.ts` pins the prefix and its order, and holds the pool to the copy limits the
+> banner can render.
 
 ### One challenge per date, across every replica
 
@@ -400,9 +410,9 @@ missed it loses points of its own whether or not the round met the challenge ove
 
 A rule's `scope` decides what "met" means, and it is not always a count: `all` needs four, `some` needs
 `bonusChallengeThreshold` (2), and a category key needs only that one. Counting *every* rule against a
-threshold of two was a real bug — four of the seven built-in challenges constrain a single category
-("the Thing must be edible"), so at most one answer could ever match and they were impossible to
-complete.
+threshold of two was a real bug — four of the seven challenges in the frozen prefix constrain a single
+category ("the Thing must be edible"), so at most one answer could ever match and they were impossible
+to complete. Most of the pool is single-category now, so this is load-bearing rather than incidental.
 
 ### 6.3 The model is not trusted with anything mechanically decidable
 

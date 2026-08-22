@@ -1,5 +1,6 @@
 import { BonusChallenge } from '../../shared/contract';
-import { BONUS_CHALLENGES, getDailyPuzzleData } from '../../shared/puzzle';
+import { BONUS_CHALLENGES } from '../../shared/bonusChallenges';
+import { getDailyPuzzleData } from '../../shared/puzzle';
 import { BonusChallengeSource } from './types';
 
 export const randomBuiltinSource: BonusChallengeSource = {

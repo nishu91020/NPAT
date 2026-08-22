@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  BONUS_CHALLENGES,
-  DETERMINISTIC_CHALLENGE_COUNT,
-  getDailyPuzzleData,
-  getRandomPuzzleData,
-} from './puzzle';
+import { BONUS_CHALLENGES, DETERMINISTIC_CHALLENGE_COUNT } from './bonusChallenges';
+import { getDailyPuzzleData, getRandomPuzzleData } from './puzzle';
 
 const FROZEN = [
   { date: '2026-01-01', letter: 'P', challengeId: 'famous_name', dayNumber: 1 },
@@ -49,38 +45,6 @@ describe('getDailyPuzzleData', () => {
       'vowel_rich',
       'famous_name',
     ]);
-  });
-});
-
-describe('the built-in challenge pool', () => {
-  it('is wide enough that the no-AI fallback does not feel repetitive', () => {
-    expect(BONUS_CHALLENGES.length).toBeGreaterThan(DETERMINISTIC_CHALLENGE_COUNT);
-    expect(BONUS_CHALLENGES.length).toBeGreaterThanOrEqual(20);
-  });
-
-  it('has unique ids', () => {
-    const ids = BONUS_CHALLENGES.map((c) => c.id);
-
-    expect(new Set(ids).size).toBe(ids.length);
-  });
-
-  it('gives every challenge a machine-checkable rule or an explicit none', () => {
-    for (const challenge of BONUS_CHALLENGES) {
-      expect(challenge.rule, challenge.id).toBeDefined();
-      expect(challenge.description.length, challenge.id).toBeLessThanOrEqual(85);
-      expect(challenge.title.length, challenge.id).toBeLessThanOrEqual(25);
-    }
-  });
-
-  it('never states a threshold a numeric check cannot use', () => {
-    const numeric = BONUS_CHALLENGES.filter(
-      (c) => c.rule?.checkKind === 'minLength' || c.rule?.checkKind === 'minVowels'
-    );
-
-    expect(numeric.length).toBeGreaterThan(0);
-    for (const challenge of numeric) {
-      expect(Number(challenge.rule!.checkValue), challenge.id).toBeGreaterThanOrEqual(1);
-    }
   });
 });
 

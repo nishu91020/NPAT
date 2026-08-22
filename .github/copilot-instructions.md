@@ -67,7 +67,8 @@ config — that is why the client can `fetch('/api/...')` with relative URLs.
 `src/shared/`.**
 
 - `src/shared/` — `contract.ts` holds the wire types both tiers must agree on; `puzzle.ts` holds the
-  daily derivation both tiers run. Must stay isomorphic: no `window`, no `localStorage`, no Node
+  daily derivation both tiers run; `bonusChallenges.ts` holds the built-in challenge pool it draws
+  from. Must stay isomorphic: no `window`, no `localStorage`, no Node
   built-ins, and it may not import from `src/client/` or `src/server/`.
 - `src/server/` — server-only. `src/server/main.ts` is the composition root and the esbuild entry.
 - `src/client/` — browser-only. Components import wire types from `../../shared/contract`, not from
@@ -133,8 +134,9 @@ and the score, all added after live output was observed getting it wrong:
 ⚠️ **A bonus rule's `scope` decides what "met" means, and it is not always a count.** `all` needs all
 four answers, `some` needs `SCORING.bonusChallengeThreshold`, and a category key (`name`, `place`,
 `animal`, `thing`) needs only that one. Counting *every* rule against a threshold of two was a real
-bug: four of the seven built-in challenges constrain a single category ("the Thing must be edible"),
-so at most one answer could ever match and they were impossible to complete. `rule` is optional
+bug: four of the seven challenges in the frozen prefix constrain a single category ("the Thing must be
+edible"), so at most one answer could ever match and they were impossible to complete — and most of
+the pool is single-category now. `rule` is optional
 because challenges generated before it existed are still served from Blob storage; absent means
 `some`, the historical behaviour.
 
@@ -200,10 +202,15 @@ the letter list, or the epoch retroactively rewrites every past puzzle — treat
 ⚠️ **`BONUS_CHALLENGES` is part of that frozen set, but only its first `DETERMINISTIC_CHALLENGE_COUNT`
 entries.** The daily derivation indexes that prefix, never the whole array — it was
 `% BONUS_CHALLENGES.length`, which meant appending a single challenge silently rewrote which one every
-past date resolved to. Add challenges by **appending** below the marker in `puzzle.ts`; the extras are
-drawn by room rounds and the random fallback, neither of which has to agree with history. Reordering
-or removing anything in the prefix still rewrites the past. `puzzle.test.ts` pins the prefix, its order,
-and golden letter/challenge/`dayNumber` values for known dates.
+past date resolved to. The pool lives in `src/shared/bonusChallenges.ts` (not `puzzle.ts`), and the
+prefix is structural rather than a convention: `FROZEN_CHALLENGES` holds those seven,
+`EXTRA_CHALLENGES` holds everything since, `BONUS_CHALLENGES` spreads the two together and
+`DETERMINISTIC_CHALLENGE_COUNT` is `FROZEN_CHALLENGES.length`. **Add challenges to
+`EXTRA_CHALLENGES`** — appending there cannot shift the prefix and the count cannot drift from the
+array. Reordering, removing or adding inside `FROZEN_CHALLENGES` still rewrites the past.
+`puzzle.test.ts` pins golden letter/challenge/`dayNumber` values for known dates;
+`bonusChallenges.test.ts` pins the prefix and its order, and holds every challenge to a rule, unique
+id and title, a scope the scorer understands, and the 25/85-character limits the banner can render.
 
 **The daily bonus is generated once per date, and shared across replicas.** Two layers, both
 required: `cachedPerDate` in `src/server/bonus/types.ts` caches the in-flight promise in process, and
