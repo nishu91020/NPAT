@@ -308,7 +308,40 @@ Other integrity rules:
   is only a sort, breaking ties on time. `tied` is a property of the *rank*, not of the row above —
   deriving it from the comparison alone told the leader of a two-way tie they had won outright.
 
-### 5.7 Judging a room round
+### 5.7 Creating a room is rate limited
+
+`POST /api/rooms` is the one room endpoint an anonymous caller can hit without already holding a
+seat, and every call mints a code and writes a room to storage. It is therefore the only one behind a
+limiter: `createRateLimiter` in `src/server/rooms/rateLimit.ts`, keyed on the client IP, defaulting to
+**10 creations per 10 minutes** (`ROOM_CREATE_LIMIT` / `ROOM_CREATE_WINDOW_SECONDS`). Over the limit
+the request is refused with `429` and a `Retry-After` header, and the body carries the same
+`{ error }` shape as every other room failure, so the client renders it in the landing error banner
+with no special case.
+
+Joining, polling and playing are **not** limited: they all require a seat token, polling is the normal
+mode of play at `ROOM_POLL_MS`, and throttling a poll would break the game rather than protect it.
+
+It is a **sliding window, and only allowed requests are counted.** Counting refusals too would mean a
+client stuck in a retry loop pushed its own recovery further away with every attempt and never got
+back in; as it stands the window drains on schedule no matter how hard the caller knocks.
+
+> ⚠️ **The limiter is per replica, so the real ceiling is `limit × replicas`** — up to 5× on the
+> deploy script's defaults. It is a guard against a runaway client or a casual flood, not a quota. A
+> shared counter would need a storage round trip per attempt, which costs more than the create it is
+> protecting; if a precise global limit is ever needed it wants a cache, not a blob.
+
+> ⚠️ **The limiter is only as good as `req.ip`, which is why `trust proxy` is set.** Container Apps'
+> ingress appends the real client IP to `X-Forwarded-For`, and Express reads it back by hop count —
+> `TRUST_PROXY_HOPS`, default `1`. Left at Express's default of `false`, `req.ip` would be the
+> *ingress*'s address, every visitor would share one bucket, and ten rooms an hour from anyone would
+> have throttled everybody. Raising the hop count past the number of proxies actually in front of the
+> app is the opposite failure: callers could then spoof `X-Forwarded-For` and get a fresh bucket per
+> request.
+
+Throttled requests need no telemetry of their own: the auto-instrumentation already records the
+request with its `429`, so `requests | where resultCode == 429` answers it.
+
+### 5.8 Judging a room round
 
 ```mermaid
 flowchart LR

@@ -1,5 +1,6 @@
 export { createMemoryRoomStore } from './memoryStore';
 export { createBlobRoomStore } from './blobStore';
+export { createRateLimiter, type RateLimitDecision, type RateLimiter } from './rateLimit';
 export { createRoomService, type RoomService, type RoomServiceDeps } from './service';
 export {
   RoomError,

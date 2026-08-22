@@ -321,6 +321,19 @@ every button click still beeped. Never reintroduce a `soundEnabled` check around
   live streak for someone who had not played in weeks. The decay is **read-only**: nothing writes it
   back, `lastPlayedDate` stays the record, and `recordGameCompletion`/`projectedStreak` deliberately
   read the raw value so they can tell "played yesterday" from "chain long dead".- **`judgedBy` is the provenance field, and it is persisted.** It is typed in `src/shared/contract.ts` and
+- **`POST /api/rooms` is rate limited; nothing else about rooms is.** `createRateLimiter` in
+  `src/server/rooms/rateLimit.ts` keys on client IP, defaults to 10 creations per 10 minutes
+  (`ROOM_CREATE_LIMIT` / `ROOM_CREATE_WINDOW_SECONDS`), and refuses with `429` + `Retry-After` and the
+  usual `{ error }` body so the client's existing banner shows it. Create is the only room endpoint an
+  anonymous caller can reach without a seat token, and each call writes a new room. **Do not extend it
+  to polling** — polling every `ROOM_POLL_MS` is how the game is played. Only *allowed* requests are
+  counted, so a client stuck retrying still recovers when the window drains.
+- ⚠️ **The room-create limiter is per replica (`limit × replicas`, up to 5× on the deploy defaults) and
+  depends on `trust proxy`.** It is a guard against a runaway client, not a quota; a precise global
+  limit wants a cache, not a blob write per attempt. `app.set('trust proxy', TRUST_PROXY_HOPS)`
+  (default `1`, the Container Apps ingress) is what makes `req.ip` the caller rather than the ingress —
+  at Express's default of `false` every visitor shares one bucket, and set too high callers can spoof
+  `X-Forwarded-For` for a fresh bucket per request.
 - ⚠️ **A room player id names a seat; the seat token owns it.** Ids are public — `toView` sends every
   player's id to every player, and results carry them — so `authorize()` in `roomState.ts` checks the
   server-issued `token`, and **every** room entry point goes through it, reads included. Authorising
