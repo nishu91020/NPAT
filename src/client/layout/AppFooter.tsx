@@ -10,7 +10,7 @@ interface AppFooterProps {
 export const AppFooter: React.FC<AppFooterProps> = ({ gamesPlayed, onOpenHelp, onOpenStats }) => (
   <footer className="site-footer">
     <div className="site-footer__group">
-      <span>LEXICON v1.0.4</span>
+      <span>Nishu Rai © 2026</span>
       <span className="site-footer__separator">•</span>
       <span>Name • Place • Animal • Thing</span>
     </div>

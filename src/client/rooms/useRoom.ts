@@ -13,7 +13,7 @@ import {
   startRoomRound,
   submitRoomAnswers,
   type PlayerSeat,
-} from './roomClient';
+} from './client/roomClient';
 import {
   clearRoomSeat,
   loadPlayerIdentity,

@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { playClickSound } from '../audio';
 import { LandingHero } from './LandingHero';
 import { LandingModeCards } from './LandingModeCards';
-import { CreateRoomForm } from '../rooms/CreateRoomForm';
-import { JoinRoomForm } from '../rooms/JoinRoomForm';
+import { CreateRoomForm } from '../rooms/forms/CreateRoomForm';
+import { JoinRoomForm } from '../rooms/forms/JoinRoomForm';
 
 type RoomIntent = 'create' | 'join';
 

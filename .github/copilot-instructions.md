@@ -259,10 +259,15 @@ the chrome** — header, footer, the two modals, the sound toggle — and render
 `src/server/` is grouped by domain** — `layout/` (Header, AppFooter), `modals/` (HelpRulesModal,
 StreakStatsModal), `seo/` (SeoFaqSection),
 `landing/`, `daily/` (its hook, screen, LetterBanner, CategoryInputForm, ValidationResultCard,
-judgedBy, shareCard) and `rooms/` (useRoom, roomClient, RoomScreen and the create/join forms), with
-`styles/` alongside. Each folder holds its own hook *and* its own components. There is no
+judgedBy, shareCard) and `rooms/`, with
+`styles/` alongside. Each folder holds its own hook *and* its own components. ⚠️ **`rooms/` is
+subfoldered by phase**: `RoomScreen`, `useRoom` and `RoomStatusMessage` sit at its root, and the rest is
+`client/` (roomClient — the transport), `forms/` (the create/join forms), `lobby/`, `racing/`
+(useRoomRound and the race panels) and `reveal/` (the leaderboard, standings and match-complete
+cards). The phase folders are named for `RoomPhase` values; `judging` has none because it is
+`RoomStatusMessage` with different words. There is no
 `components/` folder any more; a file sits at the client root only when more than one feature needs
-it (`audio.ts`, `storage.ts`, `types.ts`, `categories.ts`). **The room forms live in `rooms/` even
+it (`audio.ts`, `storage.ts`, `types.ts`, `categories.ts`). **The room forms live in `rooms/forms/` even
 though `landing/` renders them** — they are about taking a seat, not about the landing page.
 Components stay presentational and hooks keep the state. **`LandingScreen` only chooses a view**: it holds the `intent`
 (`null`/`'create'`/`'join'`) and renders `LandingHero` plus one of `LandingModeCards`,
@@ -283,7 +288,17 @@ transition belongs to the hook that causes it: `daily.start()` and `rooms.create
 sequence and fire the callback themselves rather than returning a flag a caller has to remember to
 act on. The room snapshot and the timestamp it arrived at are one piece of
 state on purpose: a countdown measured against a timestamp from a different poll than the room it
-belongs to is wrong. Persistence is `localStorage` via `src/client/storage.ts` under versioned keys
+belongs to is wrong. **`RoomScreen` renders a phase, it does not implement one** — it draws the top
+bar and the player list itself (they never change with the phase) and picks the panel
+for `room.phase` (`RoomLobbyPanel` / `RoomRacePanel` /
+`RoomStatusMessage` / `RoomRevealPanel`) and holds no round state; the racing panel renders its own
+head (letter, bonus, clock) inline and composes `RoomAnswerForm`, the reveal panel composes `RoomRoundLeaderboard` (a
+`RoomScoreCard` per racer) and draws the standings table and match-complete card inline. ⚠️ **The racing clock and
+the auto-submit live in `src/client/rooms/racing/useRoomRound.ts`**, scoped to one round while `useRoom`
+survives every phase: `timeLeft` is derived from the round's `endsAt` plus the drift since
+`fetchedAtMs` and never counted down locally, the auto-submit reads answers through a ref so typing
+does not re-run the effect that fires it, and a `hasAutoSubmitted` ref reset on the round change is
+what makes it fire exactly once. Persistence is `localStorage` via `src/client/storage.ts` under versioned keys
 `npat_game_stats_v1` / `npat_today_result_v1` / `npat_player_v1` / `npat_room_seat_v1` — bump the
 `_v1` suffix when the stored shape changes, since loaders only shallow-merge over `DEFAULT_STATS`.
 

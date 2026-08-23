@@ -1,6 +1,6 @@
 import React from 'react';
 import { ArrowLeft, Loader2 } from 'lucide-react';
-import { playClickSound } from '../audio';
+import { playClickSound } from '../../audio';
 
 interface RoomFormPanelProps {
   title: string;

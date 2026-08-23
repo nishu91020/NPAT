@@ -10,7 +10,7 @@ import { RoomScreen } from './rooms/RoomScreen';
 import { DailyGameScreen } from './daily/DailyGameScreen';
 import { StreakStatsModal } from './modals/StreakStatsModal';
 import { HelpRulesModal } from './modals/HelpRulesModal';
-import { SeoFaqSection } from './seo/SeoFaqSection';
+import { SeoFaqSection } from './layout/SeoFaqSection';
 
 type View = 'landing' | 'game' | 'room';
 

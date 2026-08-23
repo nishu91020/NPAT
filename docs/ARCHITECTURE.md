@@ -600,14 +600,28 @@ src/client/
   landing/   LandingScreen, LandingHero, LandingModeCards
   daily/     useDailyGame, useGameStats, DailyGameScreen, LetterBanner,
              CategoryInputForm, ValidationResultCard, judgedBy, shareCard
-  rooms/     useRoom, roomClient, RoomScreen, CreateRoomForm, JoinRoomForm,
-             RoomFormPanel, RoomNameField
+  rooms/     useRoom, RoomScreen, RoomStatusMessage    the module's surface
+    client/    roomClient                          every call to /api/rooms
+    forms/     CreateRoomForm, JoinRoomForm, RoomFormPanel, RoomNameField
+    lobby/     RoomLobbyPanel
+    racing/    useRoomRound, RoomRacePanel, RoomAnswerForm
+    reveal/    RoomRevealPanel, RoomRoundLeaderboard, RoomScoreCard
   styles/    the stylesheets index.css imports
 ```
 
+**Inside `rooms/`, the subfolders are the phases.** A room is four screens wearing one URL, so the
+folder names are `RoomPhase` values: looking for what the player sees while racing means opening
+`racing/`. What sits at the room root is what is not a phase: `RoomScreen` (which picks the panel for
+`room.phase`, and draws the top bar and the player list itself — they are the same in every phase and
+were not worth the hop), `useRoom` (which owns the seat) and `RoomStatusMessage`. The other two
+non-phase folders cut across all of them: `client/` is the transport and `forms/` is how a player gets
+in before any phase exists. `judging` has no folder because it has no panel of its own — it is
+`RoomStatusMessage` with different words, which is why that primitive sits at the root rather than in
+`racing/`, whose panel also reuses it.
+
 A file sits at the root only when more than one feature needs it — `storage.ts` keeps stats, the player
 identity *and* the room seat; `audio.ts` and `categories.ts` are used by both modes. **The room forms
-live in `rooms/` even though `landing/` renders them**, because they are about taking a seat, not about
+live in `rooms/forms/` even though `landing/` renders them**, because they are about taking a seat, not about
 the landing page; `landing/` composing them is the dependency pointing the right way. Components stay
 presentational and hooks keep the state — that rule survived the move, it is just no longer enforced by
 a folder called `components/`.
@@ -651,6 +665,30 @@ it has to remember to act on.
 The room snapshot and the timestamp it arrived at are **one piece of state**, deliberately: a
 countdown measured against a timestamp from a different poll than the room it belongs to is wrong,
 and keeping them apart made that possible.
+
+**`RoomScreen` renders a phase; it does not implement one.** A room is four different screens wearing
+one URL — lobby, racing, judging, reveal — and they were all inlined in a single 430-line component
+alongside the clock, the auto-submit and the clipboard. What it keeps is only what does not change
+with the phase: the top bar (with the copied-invite flash, since nothing else can see it) and the
+player list. Everything below them is picked by `room.phase` — one of `RoomLobbyPanel`,
+`RoomRacePanel`,
+`RoomStatusMessage` for judging, or `RoomRevealPanel`. The racing panel keeps its own head (the
+letter, the bonus and the clock) — a static block that reads once and is never reused, so extracting
+it would only add a hop — and pairs it with one of three bodies, the last being `RoomAnswerForm`; the
+reveal panel
+composes `RoomRoundLeaderboard` (a `RoomScoreCard` per racer) and draws the standings table and the
+match-complete card itself. Each is presentational, so a phase can be read without running the other three
+in your head.
+
+⚠️ **The racing clock and the auto-submit live in `racing/useRoomRound.ts`, not in a component.** It owns the
+typed answers, the once-a-second re-render that advances the countdown, the tick sound, clearing the
+answers when the round number changes, and the single auto-submit when the clock hits zero. Three
+details there are load-bearing and easy to lose in a refactor: `timeLeft` is derived from the round's
+own `endsAt` plus the drift since `fetchedAtMs` rather than counted down locally, the auto-submit
+reads the answers through a ref so typing does not re-run the effect that fires it, and
+`hasAutoSubmitted` is a ref reset on the round change so a round is auto-submitted exactly once. The
+hook is deliberately separate from `useRoom.ts`: that one owns the seat and the polling loop and
+survives every phase, while this one is scoped to a single round.
 
 **Audio is synthesized, not loaded.** `audio.ts` generates every sound with the Web Audio API through a
 lazily created shared `AudioContext`. There are no audio assets, and every function no-ops when the
