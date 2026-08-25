@@ -2,7 +2,7 @@ import type OpenAI from 'openai';
 import { CategoryKey } from '../../shared/contract';
 import { createStructuredCompleter } from '../azure/jsonSchemaCompleter';
 import { ADJUDICATOR_SYSTEM_PROMPT } from '../prompts';
-import { CATEGORY_KEYS } from './scoring';
+import { CATEGORY_KEYS } from './rules';
 import { targetLetterOf } from './roundGuardrails';
 import {
   BonusAdjudicationRequest,

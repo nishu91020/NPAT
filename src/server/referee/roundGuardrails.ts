@@ -1,5 +1,5 @@
 import { BonusChallenge, BonusRule, CategoryKey, UserAnswers } from '../../shared/contract';
-import { CATEGORY_KEYS, SCORING, bonusMetFor } from './scoring';
+import { CATEGORY_KEYS, SCORING, bonusMetFor } from './rules';
 import { JudgeRequest, JudgeVerdict } from './types';
 
 const VOWELS = /[aeiou]/gi;

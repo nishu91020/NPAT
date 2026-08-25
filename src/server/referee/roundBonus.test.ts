@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BonusChallenge, CategoryKey, UserAnswers } from '../../shared/contract';
-import { CATEGORY_KEYS } from './scoring';
+import { CATEGORY_KEYS } from './rules';
 import {
   BonusAdjudicator,
   NO_RULING,

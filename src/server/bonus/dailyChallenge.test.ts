@@ -38,6 +38,14 @@ vi.mock('@azure/storage-blob', () => {
 
 const { createBlobStore } = await import('./blobStore');
 
+async function restError(statusCode: number): Promise<Error> {
+  const { RestError } = (await import('@azure/storage-blob')) as unknown as {
+    RestError: new (statusCode: number) => Error;
+  };
+
+  return new RestError(statusCode);
+}
+
 function challenge(id: string): BonusChallenge {
   return { id, title: id, description: id, icon: 'Sparkles', ruleHint: id };
 }
@@ -63,8 +71,7 @@ beforeEach(() => {
 
 describe('blob store', () => {
   it('returns null when the blob is missing', async () => {
-    const { RestError } = await import('@azure/storage-blob');
-    downloadMock.mockRejectedValue(new RestError(404));
+    downloadMock.mockRejectedValue(await restError(404));
 
     const store = createBlobStore('UseDevelopmentStorage=true');
 
@@ -72,10 +79,9 @@ describe('blob store', () => {
   });
 
   it('keeps the stored value when a concurrent writer wins putIfAbsent', async () => {
-    const { RestError } = await import('@azure/storage-blob');
     const existing = challenge('existing');
 
-    uploadMock.mockRejectedValue(new RestError(409));
+    uploadMock.mockRejectedValue(await restError(409));
     downloadMock.mockResolvedValue({
       readableStreamBody: Readable.from([JSON.stringify(existing)]),
     });

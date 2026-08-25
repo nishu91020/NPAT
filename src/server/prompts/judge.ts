@@ -1,4 +1,4 @@
-import { SCORING } from '../referee/scoring';
+import { SCORING } from '../referee/rules';
 
 export const JUDGE_SYSTEM_PROMPT = `You are the ultimate fun, fair, and precise AI referee for the classic word puzzle game "Name, Place, Animal, Thing".
 

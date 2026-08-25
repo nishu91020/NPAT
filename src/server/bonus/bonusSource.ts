@@ -1,9 +1,8 @@
 import type OpenAI from 'openai';
 import { BonusChallenge, BonusRule, CategoryKey } from '../../shared/contract';
 import { createStructuredCompleter } from '../azure/jsonSchemaCompleter';
-import { endingsOf, satisfiesCheck } from '../referee/bonusRule';
-import { CATEGORY_KEYS, bonusMetFor } from '../referee/scoring';
-import { startsWithTargetLetter } from '../referee/targetLetter';
+import { endingsOf, satisfiesCheck, startsWithTargetLetter } from '../referee/roundGuardrails';
+import { CATEGORY_KEYS, bonusMetFor } from '../referee/rules';
 import { BonusChallengeSource } from './dailyChallenge';
 import { RENDERABLE_ICONS } from './icons';
 import { RULE_FAMILIES } from './ruleFamilies';

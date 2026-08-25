@@ -1,15 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { BonusChallenge, CategoryKey } from '../../shared/contract';
 import {
-  CATEGORY_KEYS,
-  SCORING,
   defaultOverallFeedback,
   evaluateRound,
-  pointsFor,
   scoreVerdict,
-  speedBonusFor,
   withFallback,
 } from './scoring';
+import { CATEGORY_KEYS, SCORING, pointsFor, speedBonusFor } from './rules';
 import { CategoryJudgement, Judge, JudgeVerdict } from './types';
 
 const bonus: BonusChallenge = {

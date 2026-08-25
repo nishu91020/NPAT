@@ -2,7 +2,7 @@ import type OpenAI from 'openai';
 import { CategoryKey } from '../../shared/contract';
 import { ContentFilterError, createStructuredCompleter } from '../azure/jsonSchemaCompleter';
 import { JUDGE_SYSTEM_PROMPT } from '../prompts';
-import { CATEGORY_KEYS, SCORING } from './scoring';
+import { CATEGORY_KEYS, SCORING } from './rules';
 import {
   enforceTargetLetter,
   targetLetterOf,

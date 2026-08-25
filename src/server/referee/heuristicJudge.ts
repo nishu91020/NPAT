@@ -1,5 +1,5 @@
 import { BonusChallenge, CategoryKey } from '../../shared/contract';
-import { CATEGORY_KEYS } from './scoring';
+import { CATEGORY_KEYS } from './rules';
 import { startsWithTargetLetter, targetLetterOf } from './roundGuardrails';
 import { CategoryJudgement, Judge, JudgeRequest, JudgeVerdict } from './types';
 
