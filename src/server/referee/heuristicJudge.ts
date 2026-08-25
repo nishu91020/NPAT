@@ -1,6 +1,6 @@
 import { BonusChallenge, CategoryKey } from '../../shared/contract';
 import { CATEGORY_KEYS } from './scoring';
-import { startsWithTargetLetter, targetLetterOf } from './targetLetter';
+import { startsWithTargetLetter, targetLetterOf } from './roundGuardrails';
 import { CategoryJudgement, Judge, JudgeRequest, JudgeVerdict } from './types';
 
 const VERIFIABLE_BONUS_RULES: Record<string, (word: string, key: CategoryKey) => boolean> = {

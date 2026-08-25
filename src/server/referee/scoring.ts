@@ -1,7 +1,6 @@
 import { BonusChallenge, BonusScope, CategoryKey } from '../../shared/contract';
-import { enforceBonusRule } from './bonusRule';
+import { enforceBonusRule, enforceSuggestions } from './roundGuardrails';
 import { NO_RULING, applyBonusRuling, type BonusRuling } from './roundBonus';
-import { enforceSuggestions } from './suggestion';
 import {
   CategoryJudgement,
   Judge,

@@ -4,10 +4,11 @@ import {
   ContentFilterError,
   ModelRefusedError,
   TruncatedCompletionError,
-} from '../azure/structuredCompletion';
+} from '../azure/jsonSchemaCompleter';
+import { RENDERABLE_ICONS } from './icons';
+import { RULE_FAMILIES as RULE_FAMILY_LIST } from './ruleFamilies';
 import {
   BONUS_SYSTEM_PROMPT,
-  RENDERABLE_ICONS,
   RULE_FAMILIES,
   buildBonusSchema,
   buildBonusUserPrompt,
@@ -18,7 +19,7 @@ import {
   restatesTargetLetter,
   ruleFamilyForDate,
   toBonusRule,
-} from './azureSource';
+} from './bonusSource';
 
 const DEPLOYMENT = 'npat-bonus';
 
@@ -104,6 +105,15 @@ describe('prompt split', () => {
 });
 
 describe('rule families', () => {
+  it('keeps the catalog as a concrete list of unique, non-empty families', () => {
+    expect(RULE_FAMILY_LIST.length).toBeGreaterThan(0);
+    expect(new Set(RULE_FAMILY_LIST).size).toBe(RULE_FAMILY_LIST.length);
+    for (const family of RULE_FAMILY_LIST) {
+      expect(family.trim().length).toBeGreaterThan(0);
+      expect(family.toLowerCase()).toContain('rule');
+    }
+  });
+
   it('names a family in the per-request message', () => {
     const prompt = buildBonusUserPrompt('S', 'a rule about word length');
 

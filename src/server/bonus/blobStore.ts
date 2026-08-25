@@ -1,7 +1,7 @@
 import { DefaultAzureCredential } from '@azure/identity';
 import { BlobServiceClient, RestError } from '@azure/storage-blob';
 import { BonusChallenge } from '../../shared/contract';
-import { DailyChallengeStore } from './store';
+import { DailyChallengeStore } from './dailyChallenge';
 
 const CONTAINER = 'daily-challenges';
 
@@ -27,7 +27,7 @@ export function createBlobStore(
     : new BlobServiceClient(endpointOrConnectionString, new DefaultAzureCredential());
 
   const container = service.getContainerClient(containerName);
-  let ensured: Promise<unknown> | null = null;
+  let ensured: Promise<Awaited<ReturnType<typeof container.createIfNotExists>>> | null = null;
 
   function ensureContainer() {
     ensured ??= container.createIfNotExists().catch((err) => {

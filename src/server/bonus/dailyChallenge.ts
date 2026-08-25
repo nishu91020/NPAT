@@ -1,6 +1,25 @@
 import { BonusChallenge } from '../../shared/contract';
 import { DailyChallengeOrigin } from '../telemetry/types';
-import { DailyChallengeStore, nullStore } from './store';
+
+export interface DailyChallengeStore {
+  get(dateStr: string): Promise<BonusChallenge | null>;
+
+  put(dateStr: string, challenge: BonusChallenge): Promise<void>;
+
+  putIfAbsent(dateStr: string, challenge: BonusChallenge): Promise<BonusChallenge>;
+}
+
+export const nullStore: DailyChallengeStore = {
+  async get() {
+    return null;
+  },
+  async put() {
+    // intentionally no-op: app falls back to per-process caching when no shared store is configured
+  },
+  async putIfAbsent(_dateStr, challenge) {
+    return challenge;
+  },
+};
 
 export interface BonusChallengeSource {
   next(letter: string): Promise<BonusChallenge>;
@@ -27,7 +46,6 @@ export function cachedPerDate(
   options: {
     store?: DailyChallengeStore;
     maxDays?: number;
-
     onServed?: (origin: DailyChallengeOrigin, dateStr: string) => void;
   } = {}
 ) {
@@ -44,7 +62,6 @@ export function cachedPerDate(
     }
 
     const generated = await sourceFor(dateStr).next(letter);
-
     const published = await store.putIfAbsent(dateStr, generated);
 
     onServed(published === generated ? 'generated' : 'store', dateStr);

@@ -9,7 +9,7 @@ import {
   createStructuredCompleter,
   harmCategoriesFrom,
   isContentFilterRejection,
-} from './structuredCompletion';
+} from './jsonSchemaCompleter';
 
 const DEPLOYMENT = 'npat-judge';
 
