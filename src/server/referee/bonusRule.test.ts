@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BonusChallenge, CategoryKey } from '../../shared/contract';
-import { enforceBonusRule, endingsOf, satisfiesCheck } from './bonusRule';
-import { bonusMetFor } from './scoring';
+import { enforceBonusRule, endingsOf, satisfiesCheck } from './roundGuardrails';
+import { bonusMetFor } from './rules';
 import { CategoryJudgement, JudgeVerdict } from './types';
 
 function verdict(

@@ -5,6 +5,7 @@ import express from 'express';
 import path from 'path';
 import { getDailyPuzzleData, getRandomPuzzleData } from '../shared/puzzle';
 import { readAnswers } from './answers';
+import { nonNegativeInt, positiveInt } from './env';
 import {
   createAzureBonusAdjudicator,
   createAzureJudge,
@@ -34,7 +35,7 @@ import {
   resolveAzureConfig,
   type AzureClient,
 } from './azure';
-import { RoomError, createBlobRoomStore, createMemoryRoomStore, createRoomService, type PlayerSeat, type RoomService, type RoomStore } from './rooms';
+import { RoomError, createBlobRoomStore, createMemoryRoomStore, createRateLimiter, createRoomService, type PlayerSeat, type RoomService, type RoomStore } from './rooms';
 
 import {
   createAzureMonitorTelemetry,
@@ -48,6 +49,8 @@ dotenv.config();
 const app = express();
 
 const PORT = Number(process.env.PORT) || 3000;
+
+app.set('trust proxy', nonNegativeInt(process.env.TRUST_PROXY_HOPS, 1));
 
 app.use(express.json({ limit: '64kb' }));
 
@@ -257,7 +260,35 @@ async function handleRoom(res: express.Response, work: () => Promise<unknown>) {
   }
 }
 
-app.post('/api/rooms', async (req, res) => {
+const roomCreateLimiter = createRateLimiter({
+  limit: positiveInt(process.env.ROOM_CREATE_LIMIT, 10),
+  windowSeconds: positiveInt(process.env.ROOM_CREATE_WINDOW_SECONDS, 600),
+});
+
+function clientKey(req: express.Request): string {
+  return req.ip || req.socket.remoteAddress || 'unknown';
+}
+
+function tooManyRoomsMessage(retryAfterSeconds: number): string {
+  const minutes = Math.ceil(retryAfterSeconds / 60);
+  return minutes <= 1
+    ? 'Too many rooms created from here. Try again in a minute.'
+    : `Too many rooms created from here. Try again in ${minutes} minutes.`;
+}
+
+function throttleRoomCreation(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+): void {
+  const decision = roomCreateLimiter.check(clientKey(req));
+  if (decision.allowed) return next();
+
+  res.setHeader('Retry-After', String(decision.retryAfterSeconds));
+  res.status(429).json({ error: tooManyRoomsMessage(decision.retryAfterSeconds) });
+}
+
+app.post('/api/rooms', throttleRoomCreation, async (req, res) => {
   await handleRoom(res, async () => {
     const { playerId, name } = readIdentity(req);
     return roomService().create(playerId, name);

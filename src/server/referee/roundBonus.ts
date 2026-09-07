@@ -1,6 +1,6 @@
 import { BonusChallenge, CategoryKey, UserAnswers } from '../../shared/contract';
-import { CATEGORY_KEYS, bonusMetFor } from './scoring';
-import { startsWithTargetLetter } from './targetLetter';
+import { CATEGORY_KEYS, bonusMetFor } from './rules';
+import { startsWithTargetLetter } from './roundGuardrails';
 import { JudgeVerdict } from './types';
 
 export interface BonusEntry {

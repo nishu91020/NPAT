@@ -1,8 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { BonusChallenge } from '../../shared/contract';
 import { createBlobStore } from './blobStore';
-import { DailyChallengeStore } from './store';
-import { BonusChallengeSource, cachedPerDate } from './types';
+import { DailyChallengeStore, BonusChallengeSource, cachedPerDate } from './dailyChallenge';
 
 const CONNECTION = 'UseDevelopmentStorage=true';
 const enabled = process.env.RUN_AZURITE_TESTS === 'true';

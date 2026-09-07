@@ -79,7 +79,8 @@ judging that never happens.
 - **`src/shared/`** — the only code both tiers run. No `window`, no `localStorage`, no Node built-ins,
   and no imports from either tier. `contract.ts` holds the wire types; `puzzle.ts` holds the daily
   derivation, shared because the client derives the puzzle optimistically to render before the
-  network answers, and the two derivations must agree exactly.
+  network answers, and the two derivations must agree exactly; `bonusChallenges.ts` holds the
+  built-in challenge pool the derivation draws from.
 - **`src/server/`** — server-only. This is what keeps the LLM SDK, the prompts and the scoring rules
   out of the browser bundle.
 - **`src/client/`** — browser-only. `types.ts` holds only what never leaves the browser
@@ -151,13 +152,39 @@ sequenceDiagram
 (21 letters — Q/U/X/Y/Z are excluded as unplayable), picks a fallback challenge, and derives
 `dayNumber` from a `2026-01-01` epoch. There is no database of puzzles.
 
+**The letter is then held to one extra rule: it must differ from yesterday's.** `letterIndexFor`
+compares the date's raw hash index against the previous day's *resolved* index and, only when they
+match, moves it on by a second hash-derived step. The step is derived rather than `+1` because
+consecutive dates inside a month already hash one apart, so `+1` walked straight into the next day's
+letter and cascaded — the fix produced five changed days in a row and still left a collision at the
+end of the chain.
+
+This is a **local rule with a bounded lookback**, not a chain back to the epoch, so the cost is a
+handful of hashes rather than one per day since launch. That leaves a theoretical gap where a long
+enough run of collisions could out-reach the lookback; over 120 years there is not one, and the
+lookback is five days deep against collisions that occur twice in twenty.
+
 > ⚠️ Changing the hash, the letter list or the epoch **retroactively rewrites every past puzzle**.
+> Adding the no-repeat rule was itself such a change, and was only acceptable because it was measured
+> first: across 120 years it moves **three** dates — `2031-01-01`, `2033-01-01` and `2138-01-01`, all
+> year boundaries, all in the future — and **nothing on or before the day it shipped**. `puzzle.test.ts`
+> pins that exact set, so any future change that quietly rewrites a different date fails loudly.
+>
 > The same is true of the first `DETERMINISTIC_CHALLENGE_COUNT` (7) entries of `BONUS_CHALLENGES`:
 > the derivation indexes that prefix, and it was once `% BONUS_CHALLENGES.length`, which meant
-> appending a single challenge silently changed which one every past date resolved to. Add challenges
-> by **appending below the marker** in `puzzle.ts`; the extras are drawn by room rounds and the
-> random fallback, neither of which has to agree with history. `puzzle.test.ts` pins the prefix, its
-> order, and golden letter/challenge/`dayNumber` values for known dates.
+> appending a single challenge silently changed which one every past date resolved to.
+>
+> The pool lives in `src/shared/bonusChallenges.ts`, and the prefix is now **structural rather than a
+> convention**: `FROZEN_CHALLENGES` holds those seven, `EXTRA_CHALLENGES` holds everything since, and
+> `BONUS_CHALLENGES` is the two spread together with `DETERMINISTIC_CHALLENGE_COUNT` derived from
+> `FROZEN_CHALLENGES.length`. **Add challenges to `EXTRA_CHALLENGES`**, where appending cannot shift
+> the prefix and the count cannot drift out of step with the array. Adding to `FROZEN_CHALLENGES`
+> still rewrites history — and now fails the tests that pin the prefix and the golden dates.
+>
+> The extras are drawn by room rounds and the random fallback, neither of which has to agree with
+> history. `puzzle.test.ts` pins golden letter/challenge/`dayNumber` values for known dates;
+> `bonusChallenges.test.ts` pins the prefix and its order, and holds the pool to the copy limits the
+> banner can render.
 
 ### One challenge per date, across every replica
 
@@ -176,17 +203,17 @@ generates and serves its own daily challenge. This project has had that bug once
 
 ### Playing a round
 
-All daily-game state lives in `App.tsx` (no router, no state library) and is passed down as props.
-`CategoryInputForm` runs a 60-second clock and three lives; running out of time costs a life and
-resets the clock to 15 seconds.
+All daily-game state lives in `useDailyGame.ts` (no router, no state library) and is passed down as
+props by `App.tsx`. `CategoryInputForm` runs a 60-second clock and three lives; running out of time
+costs a life and resets the clock to 15 seconds.
 
 > ⚠️ Elapsed time is measured from a round-start timestamp, never derived as
 > `timeLimitSeconds - timeLeft` — that formula reported 45 seconds for a round that had already run
 > past a minute, because losing a life resets the clock.
 
 **Scoring failure is not silently faked.** The client has no local validator. If `/api/validate`
-fails, `App.tsx` shows an error and does **not** record the round, so streak stats cannot be corrupted
-by a guess. The puzzle *fetch* does fall back to `getDailyPuzzleData`, so the letter still renders
+fails, `useDailyGame` exposes an error (rendered by `DailyGameScreen`) and does **not** record the
+round, so streak stats cannot be corrupted by a guess. The puzzle *fetch* does fall back to `getDailyPuzzleData`, so the letter still renders
 offline.
 
 ---
@@ -308,7 +335,40 @@ Other integrity rules:
   is only a sort, breaking ties on time. `tied` is a property of the *rank*, not of the row above —
   deriving it from the comparison alone told the leader of a two-way tie they had won outright.
 
-### 5.7 Judging a room round
+### 5.7 Creating a room is rate limited
+
+`POST /api/rooms` is the one room endpoint an anonymous caller can hit without already holding a
+seat, and every call mints a code and writes a room to storage. It is therefore the only one behind a
+limiter: `createRateLimiter` in `src/server/rooms/rateLimit.ts`, keyed on the client IP, defaulting to
+**10 creations per 10 minutes** (`ROOM_CREATE_LIMIT` / `ROOM_CREATE_WINDOW_SECONDS`). Over the limit
+the request is refused with `429` and a `Retry-After` header, and the body carries the same
+`{ error }` shape as every other room failure, so the client renders it in the landing error banner
+with no special case.
+
+Joining, polling and playing are **not** limited: they all require a seat token, polling is the normal
+mode of play at `ROOM_POLL_MS`, and throttling a poll would break the game rather than protect it.
+
+It is a **sliding window, and only allowed requests are counted.** Counting refusals too would mean a
+client stuck in a retry loop pushed its own recovery further away with every attempt and never got
+back in; as it stands the window drains on schedule no matter how hard the caller knocks.
+
+> ⚠️ **The limiter is per replica, so the real ceiling is `limit × replicas`** — up to 5× on the
+> deploy script's defaults. It is a guard against a runaway client or a casual flood, not a quota. A
+> shared counter would need a storage round trip per attempt, which costs more than the create it is
+> protecting; if a precise global limit is ever needed it wants a cache, not a blob.
+
+> ⚠️ **The limiter is only as good as `req.ip`, which is why `trust proxy` is set.** Container Apps'
+> ingress appends the real client IP to `X-Forwarded-For`, and Express reads it back by hop count —
+> `TRUST_PROXY_HOPS`, default `1`. Left at Express's default of `false`, `req.ip` would be the
+> *ingress*'s address, every visitor would share one bucket, and ten rooms an hour from anyone would
+> have throttled everybody. Raising the hop count past the number of proxies actually in front of the
+> app is the opposite failure: callers could then spoof `X-Forwarded-For` and get a fresh bucket per
+> request.
+
+Throttled requests need no telemetry of their own: the auto-instrumentation already records the
+request with its `429`, so `requests | where resultCode == 429` answers it.
+
+### 5.8 Judging a room round
 
 ```mermaid
 flowchart LR
@@ -367,9 +427,9 @@ missed it loses points of its own whether or not the round met the challenge ove
 
 A rule's `scope` decides what "met" means, and it is not always a count: `all` needs four, `some` needs
 `bonusChallengeThreshold` (2), and a category key needs only that one. Counting *every* rule against a
-threshold of two was a real bug — four of the seven built-in challenges constrain a single category
-("the Thing must be edible"), so at most one answer could ever match and they were impossible to
-complete.
+threshold of two was a real bug — four of the seven challenges in the frozen prefix constrain a single
+category ("the Thing must be edible"), so at most one answer could ever match and they were impossible
+to complete. Most of the pool is single-category now, so this is load-bearing rather than incidental.
 
 ### 6.3 The model is not trusted with anything mechanically decidable
 
@@ -488,9 +548,20 @@ unconstrained random draw:
 
 Bump the `_v1` suffix when a stored shape changes: loaders only shallow-merge over `DEFAULT_STATS`.
 
-> ⚠️ **Streak math exists twice** — `App.tsx#handleSubmitAnswers` computes a streak for the result
-> object, and `storage.ts#recordGameCompletion` independently recomputes the persisted value. Update
-> both.
+> ⚠️ **Streak math lives in exactly one function.** `streakAfterCompletion(stats, dateKey)` decides
+> what a completed round makes the streak. `recordGameCompletion` persists its answer and
+> `projectedStreak` is what `useDailyGame` writes onto the result card, so the streak a player is
+> shown and the streak that gets saved cannot disagree. It used to exist twice, as
+> `useDailyGame.ts#nextStreak` and again inside `recordGameCompletion`.
+
+> ⚠️ **A stored streak is only true on the day it was written, so `loadGameStats` decays it on read.**
+> `currentStreak` in storage is a record of the last completed round, not a live figure. Once
+> `lastPlayedDate` is older than yesterday the chain is broken, and `loadGameStats` returns `0` for it.
+> Without that the header went on advertising a streak to someone who had not played in weeks, and it
+> only reset when they next submitted a round. The decay is **read-only** — nothing writes it back,
+> `lastPlayedDate` remains the record of what happened, and `recordGameCompletion` and
+> `projectedStreak` read the raw value on purpose, because they still need to tell "played yesterday"
+> from "the chain died long ago".
 
 > ⚠️ **Stored rounds outlive the features that wrote them.** `GameResult.mode` is the surviving
 > example: practice mode is gone and nothing writes it, but rounds saved while it existed are still
@@ -511,19 +582,113 @@ with Entra ID, or a connection string for Azurite locally. `blobStore.get` treat
 
 ## 9. Client structure
 
-No router, no state library. `App.tsx` owns the daily game and the current view and passes both down
-as props; `src/client/components/` holds presentational components only, each with a local `...Props`
-interface and a named export (`App.tsx` is the only default export).
+No router, no state library. **`App.tsx` owns only the current view and the app chrome** — the
+header, the footer, the two modals and the sound toggle — and picks one of three screens:
+`LandingScreen`, `RoomScreen`, `DailyGameScreen`.
+
+**`src/client/` is grouped by feature, the way `src/server/` is grouped by domain.** Each folder holds
+its own hook *and* its own components, so a mode can be read in one place instead of hopping between a
+flat `components/` and a flat pile of hooks:
+
+```
+src/client/
+  App.tsx  main.tsx  index.css        composition root
+  audio.ts  storage.ts  types.ts  categories.ts    shared by more than one mode
+  layout/    Header, AppFooter                     the frame around every screen
+  modals/    HelpRulesModal, StreakStatsModal      the overlays App owns
+  seo/       SeoFaqSection                         static copy, paired with index.html's JSON-LD
+  landing/   LandingScreen, LandingHero, LandingModeCards
+  daily/     useDailyGame, useGameStats, DailyGameScreen, LetterBanner,
+             CategoryInputForm, ValidationResultCard, judgedBy, shareCard
+  rooms/     useRoom, RoomScreen, RoomStatusMessage    the module's surface
+    client/    roomClient                          every call to /api/rooms
+    forms/     CreateRoomForm, JoinRoomForm, RoomFormPanel, RoomNameField
+    lobby/     RoomLobbyPanel
+    racing/    useRoomRound, RoomRacePanel, RoomAnswerForm
+    reveal/    RoomRevealPanel, RoomRoundLeaderboard, RoomScoreCard
+  styles/    the stylesheets index.css imports
+```
+
+**Inside `rooms/`, the subfolders are the phases.** A room is four screens wearing one URL, so the
+folder names are `RoomPhase` values: looking for what the player sees while racing means opening
+`racing/`. What sits at the room root is what is not a phase: `RoomScreen` (which picks the panel for
+`room.phase`, and draws the top bar and the player list itself — they are the same in every phase and
+were not worth the hop), `useRoom` (which owns the seat) and `RoomStatusMessage`. The other two
+non-phase folders cut across all of them: `client/` is the transport and `forms/` is how a player gets
+in before any phase exists. `judging` has no folder because it has no panel of its own — it is
+`RoomStatusMessage` with different words, which is why that primitive sits at the root rather than in
+`racing/`, whose panel also reuses it.
+
+A file sits at the root only when more than one feature needs it — `storage.ts` keeps stats, the player
+identity *and* the room seat; `audio.ts` and `categories.ts` are used by both modes. **The room forms
+live in `rooms/forms/` even though `landing/` renders them**, because they are about taking a seat, not about
+the landing page; `landing/` composing them is the dependency pointing the right way. Components stay
+presentational and hooks keep the state — that rule survived the move, it is just no longer enforced by
+a folder called `components/`.
+
+Every component still has a local `...Props` interface and a named export (`App.tsx` is the only
+default export).
+
+**`LandingScreen` chooses between three views and owns nothing else.** It holds the `intent`
+(`null` | `'create'` | `'join'`) and renders `LandingHero` plus one of `LandingModeCards`,
+`CreateRoomForm` or `JoinRoomForm`. Creating and joining used to be one form threaded with
+`intent === 'create' ? … : …` in five places — the title, the code field, the submit icon, the submit
+label and the validity rule — so neither flow could be read without mentally running the other.
+Each form now states its own copy and its own `canSubmit`, and shares only what is genuinely
+identical: `RoomFormPanel` (the titled panel with back, error and primary submit) and
+`RoomNameField`. **The player's name lives in `LandingScreen`, the room code lives in
+`JoinRoomForm`** — a name belongs to the person and survives switching between the two forms, a code
+only means anything when joining.
+
+**Each mode owns its own state in a hook, and `App` composes them.** `useDailyGame.ts` owns the
+puzzle, today's result, the submit call and its error; `useGameStats.ts` owns the persisted stats and
+is the only thing that calls `recordGameCompletion`, which `useDailyGame` reaches through an injected
+`onCompleted`; `useRoom.ts` owns everything about holding a seat. The three do not know about each
+other, and none of them decides which screen is on — that stays in `App`, which they ask for through
+injected callbacks (`onStarted` for the daily round, `onEntered`/`onExited` for rooms). **A
+transition belongs to the hook that causes it**: starting the daily round is "clear the error, fetch
+today's puzzle, show the game", and joining a room is "take a seat, show the room", so each hook runs
+the whole sequence rather than returning a flag `App` has to remember to act on. Mixing all three in
+`App.tsx` is what this split undid: the daily fetch, the validate call, the streak math and the room
+actions were interleaved in one component, so a change to one mode meant reading all of it. What is
+left in `App` is only what is genuinely cross-cutting — `handleGoHome`, which resets both modes.
 
 **Being in a room is its own module.** `useRoom.ts` owns the seat token, the player identity, the
 staleness epoch, the polling loop and every room action, and hands `App` a single `RoomController`.
 None of that is the daily game: it is only meaningful while a seat is held, and interleaving it with
 the puzzle made both harder to follow. `App` keeps only the decision a hook should not make — which
-view is on screen — which the hook asks for through one `onExited` callback.
+view is on screen — which the hook asks for through its `onEntered` / `onExited` callbacks. Both
+directions belong to the hook: a successful `create`/`join` *is* entering a room, so `create` and
+`join` return `Promise<void>` and fire `onEntered` themselves rather than handing a caller a boolean
+it has to remember to act on.
 
 The room snapshot and the timestamp it arrived at are **one piece of state**, deliberately: a
 countdown measured against a timestamp from a different poll than the room it belongs to is wrong,
 and keeping them apart made that possible.
+
+**`RoomScreen` renders a phase; it does not implement one.** A room is four different screens wearing
+one URL — lobby, racing, judging, reveal — and they were all inlined in a single 430-line component
+alongside the clock, the auto-submit and the clipboard. What it keeps is only what does not change
+with the phase: the top bar (with the copied-invite flash, since nothing else can see it) and the
+player list. Everything below them is picked by `room.phase` — one of `RoomLobbyPanel`,
+`RoomRacePanel`,
+`RoomStatusMessage` for judging, or `RoomRevealPanel`. The racing panel keeps its own head (the
+letter, the bonus and the clock) — a static block that reads once and is never reused, so extracting
+it would only add a hop — and pairs it with one of three bodies, the last being `RoomAnswerForm`; the
+reveal panel
+composes `RoomRoundLeaderboard` (a `RoomScoreCard` per racer) and draws the standings table and the
+match-complete card itself. Each is presentational, so a phase can be read without running the other three
+in your head.
+
+⚠️ **The racing clock and the auto-submit live in `racing/useRoomRound.ts`, not in a component.** It owns the
+typed answers, the once-a-second re-render that advances the countdown, the tick sound, clearing the
+answers when the round number changes, and the single auto-submit when the clock hits zero. Three
+details there are load-bearing and easy to lose in a refactor: `timeLeft` is derived from the round's
+own `endsAt` plus the drift since `fetchedAtMs` rather than counted down locally, the auto-submit
+reads the answers through a ref so typing does not re-run the effect that fires it, and
+`hasAutoSubmitted` is a ref reset on the round change so a round is auto-submitted exactly once. The
+hook is deliberately separate from `useRoom.ts`: that one owns the seat and the polling loop and
+survives every phase, while this one is scoped to a single round.
 
 **Audio is synthesized, not loaded.** `audio.ts` generates every sound with the Web Audio API through a
 lazily created shared `AudioContext`. There are no audio assets, and every function no-ops when the
@@ -535,10 +700,40 @@ context is unavailable, because browsers block audio before user interaction.
 > `playClickSound()` sites did not, so the mute button silenced the timer tick and the win jingle while
 > every button click still beeped.
 
-**Styling** is Tailwind v4, CSS-first: one `@import "tailwindcss";` and no `tailwind.config.js`. The
-design language is deliberately flat and geometric — square corners, `border-2`/`border-l-4` accents,
-hard offset shadows, `text-[10px] font-black uppercase tracking-widest` micro-labels, `min-h-[48px]`
-touch targets, and a slate/indigo/rose/emerald/amber palette. Icons come from `lucide-react`.
+**Styling** is hand-written CSS, not utility classes in JSX. `src/client/index.css` keeps one
+`@import "tailwindcss";` — **for Preflight only**, since the component CSS relies on its reset
+(`box-sizing: border-box`, zeroed button/input chrome, `border: 0 solid`) — and then imports the
+stylesheets in `src/client/styles/`: `tokens.css` first, then `base.css`, then one file per
+component area. There is no `tailwind.config.js`; do not add one.
+
+`tokens.css` is the single source of colour, font and shadow values, declared as `:root` custom
+properties. **It does not depend on Tailwind emitting anything.** Tailwind v4 only emits theme
+variables for utilities it finds in the source, and this codebase no longer uses any, so
+`var(--color-slate-900)` would resolve to nothing if the tokens were not declared here. The values
+are the Tailwind v4 defaults, copied verbatim so the refactor changed no colour.
+
+Components carry semantic class names (`.letter-banner__bonus-title`, `.room__round-btn--active`),
+never utility strings, and **conditional styling is expressed as a modifier class**, not as a
+ternary that swaps a bundle of utilities. Icon size and colour are set from the parent via
+descendant `svg` selectors wherever every icon in that element agrees, which is why most
+`lucide-react` elements carry no `className` at all.
+
+⚠️ **There are no inline `style` attributes, and dynamic values must not reintroduce one.** The only
+one that ever existed was the timer bar's `width: {percent}%`; it is now a native `<progress
+className="timer-bar">`, styled through `::-webkit-progress-value` / `::-moz-progress-bar`, with
+`.timer-bar--warning` / `.timer-bar--danger` for the threshold colours.
+
+The design language is deliberately flat and geometric — square corners (no border-radius), 2px
+borders and 4px left-accent rules, hard offset shadows (`--shadow-hard-*`), 0.625rem/900-weight
+uppercase micro-labels with `letter-spacing: 0.1em`, 48px touch targets, and a
+slate/indigo/rose/emerald/amber palette. Icons come from `lucide-react`.
+
+⚠️ **Several accent rules render a uniform border colour, and that is the existing behaviour, not a
+bug introduced by the CSS.** Markup like `border-l-4 border-amber-500 border-y border-r
+border-amber-200` looks like "amber-500 spine, amber-200 frame", but Tailwind orders colour
+utilities by family then shade, so the *later* rule won and every side was amber-500. The same
+applies to the room's match-complete card, where `bg-white` beat `bg-amber-50`. The CSS reproduces
+what the browser actually painted; changing it is a design decision, not a port.
 
 ---
 

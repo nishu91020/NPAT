@@ -1,6 +1,7 @@
 import { BonusChallenge } from '../../shared/contract';
-import { BONUS_CHALLENGES, getDailyPuzzleData } from '../../shared/puzzle';
-import { BonusChallengeSource } from './types';
+import { BONUS_CHALLENGES } from '../../shared/bonusChallenges';
+import { getDailyPuzzleData } from '../../shared/puzzle';
+import { BonusChallengeSource } from './dailyChallenge';
 
 export const randomBuiltinSource: BonusChallengeSource = {
   async next(): Promise<BonusChallenge> {
